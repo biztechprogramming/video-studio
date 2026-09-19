@@ -1,0 +1,15 @@
+# Hacker News rather than GitHub: the walkthrough opens the linked article.
+name: hn-ai-week
+title: "What Hacker News Was Arguing About — {date}"
+count: 5
+source:
+  type: hackernews
+  query: AI
+  points: 200
+  days: 7
+video:
+  preset: landscape
+youtube:
+  upload: false
+  visibility: unlisted
+  tags: [hacker news, ai, tech news]

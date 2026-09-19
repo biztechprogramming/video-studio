@@ -1,0 +1,15 @@
+# An interest-driven GitHub search rather than the trending page. The query is
+# passed to GitHub verbatim, so any search qualifier works.
+name: mcp-servers
+title: "{n} MCP Servers Worth Installing"
+count: 5
+source:
+  type: github_search
+  query: "topic:mcp stars:>300 pushed:>2026-06-01"
+  sort: stars
+video:
+  preset: landscape
+youtube:
+  upload: false
+  visibility: unlisted
+  tags: [mcp, model context protocol, claude, ai tools]

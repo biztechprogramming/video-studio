@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>video-studio card</title>
+<style>
+  /*
+   * Everything is sized in viewport units so one template serves both
+   * 1920x1080 and 1080x1920. Note vmin is 10.8px in BOTH presets (both have a
+   * 1080px short edge), so vmin-based type is physically identical across
+   * orientations — which makes shorts text read ~1.8x larger relative to the
+   * frame width, exactly what a phone-sized video wants. The safe area is the
+   * one thing sized per-axis (vw/vh), because "6% of the frame" means
+   * something different horizontally and vertically.
+   */
+  :root {
+    --accent: #7c5cff;
+    --bg: #07080c;
+    --fg: #f3f5fa;
+    --muted: #8d95a9;
+    --font: ui-sans-serif, Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+    /* Global type multiplier. The fitter steps this down if a card's content
+       would overflow the safe area; it stays 1 for almost every real card. */
+    --fs: 1;
+
+    --fs-eyebrow: calc(1.9vmin * var(--fs));
+    --fs-headline: calc(12vmin * var(--fs)); /* JS overrides with a px value */
+    --fs-subhead: calc(3.1vmin * var(--fs));
+    --fs-bullet: calc(2.55vmin * var(--fs));
+    --fs-stat-label: calc(1.55vmin * var(--fs));
+    --fs-stat-value: calc(3.4vmin * var(--fs));
+    --avatar: calc(9vmin * var(--fs));
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    /* Screenshots are static images: never let a caret or selection show up. */
+    caret-color: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- background layers ------------------------------------------------
+     Near-black base + two accent glows + a faint engineering grid. The grid
+     is masked so it only whispers in the upper half and never competes with
+     the type. */
+  .stage {
+    position: fixed;
+    inset: 0;
+    padding: 7vh 7vw 9.5vh; /* >= 6% safe area on every side; extra at the
+                               bottom because YouTube parks its UI there */
+    isolation: isolate;
+  }
+
+  .stage::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(70% 55% at 8% -8%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 62%),
+      radial-gradient(55% 45% at 102% 105%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+      linear-gradient(170deg, #0d0f16 0%, var(--bg) 45%, #05060a 100%);
+  }
+
+  .stage::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 6vmin 6vmin;
+    -webkit-mask-image: radial-gradient(120% 85% at 0% 0%, #000 0%, transparent 65%);
+    mask-image: radial-gradient(120% 85% at 0% 0%, #000 0%, transparent 65%);
+    opacity: 0.8;
+  }
+
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    /* hidden (not visible) so scrollHeight still reports the true content
+       height for the overflow check, without ever painting outside the safe
+       area if the fitter somehow gives up. */
+    overflow: hidden;
+  }
+
+  /* Children never shrink; the two spacers absorb the slack. This is what
+     makes `scrollHeight > clientHeight` an honest overflow signal for the
+     fitter — nothing silently squashes instead of overflowing. */
+  .card > header,
+  .card > .body,
+  .card > footer { flex: 0 0 auto; }
+  .card > .spacer { flex: 1 1 auto; min-height: 3.5vmin; }
+
+  /* ---- header ---- */
+  .eyebrow {
+    font-size: var(--fs-eyebrow);
+    font-weight: 700;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--accent) 78%, var(--fg));
+  }
+
+  .rule {
+    margin-top: 1.8vmin;
+    height: 0.28vmin;
+    min-height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 35%, transparent) 30%, transparent 62%);
+  }
+
+  /* ---- body ---- */
+  .avatar {
+    display: block;
+    width: var(--avatar);
+    height: var(--avatar);
+    margin-bottom: 2.6vmin;
+    border-radius: 26%;
+    object-fit: cover;
+    background: #14161f;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.14),
+      0 0 0 0.45vmin color-mix(in srgb, var(--accent) 22%, transparent),
+      0 1.4vmin 3.5vmin rgba(0, 0, 0, 0.65);
+  }
+
+  .headline {
+    font-size: var(--fs-headline);
+    font-weight: 800;
+    line-height: 1.03;
+    letter-spacing: -0.022em;
+    /* Repo slugs are long and unspaced; allow a break anywhere rather than
+       letting one token blow through the safe area. */
+    overflow-wrap: anywhere;
+    text-wrap: balance;
+  }
+
+  .subhead {
+    margin-top: 2.4vmin;
+    /* A measure cap, not a column: ~58ch keeps long descriptions readable
+       without leaving "GPU" alone on a line in landscape. */
+    max-width: min(58ch, 100%);
+    font-size: var(--fs-subhead);
+    font-weight: 400;
+    line-height: 1.35;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .bullets {
+    margin-top: 3.4vmin;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1.6vmin;
+    /* The font-size lives on the <ul>, not the <li>: `ch` in the max-width
+       below resolves against *this* element's font, so without it the
+       measure cap would be computed from the 16px root font and wrap the
+       bullets at less than half their intended width. */
+    font-size: var(--fs-bullet);
+    max-width: min(64ch, 100%);
+  }
+
+  .bullets li {
+    position: relative;
+    padding-left: 3.4vmin;
+    line-height: 1.32;
+    color: color-mix(in srgb, var(--fg) 88%, transparent);
+    text-wrap: pretty;
+  }
+
+  .bullets li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.52em;
+    width: 1.1vmin;
+    height: 1.1vmin;
+    border-radius: 0.2vmin;
+    transform: rotate(45deg);
+    background: var(--accent);
+    box-shadow: 0 0 1.6vmin color-mix(in srgb, var(--accent) 65%, transparent);
+  }
+
+  /* ---- stat chips ---- */
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.8vmin;
+  }
+
+  .chip {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 1.5vmin 2.4vmin;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-left: 0.35vmin solid color-mix(in srgb, var(--accent) 70%, transparent);
+    border-radius: 1.4vmin;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.062), rgba(255, 255, 255, 0.018));
+  }
+
+  .chip .label {
+    display: block;
+    font-size: var(--fs-stat-label);
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .chip .value {
+    display: block;
+    margin-top: 0.7vmin;
+    font-size: var(--fs-stat-value);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+    color: var(--fg);
+    white-space: nowrap;
+  }
+
+  /* ---- shorts (1080x1920) ----------------------------------------------
+     Same markup, different proportions. A 9:16 frame is watched on a phone
+     at arm's length, so the type steps up relative to the frame, and the
+     content sinks toward the lower third: a shorts card that is centred in
+     1920px of height reads as a scattering of small text in a void, while a
+     title block sitting just above the stat chips reads as one composition. */
+  @media (orientation: portrait) {
+    :root {
+      --fs-eyebrow: calc(2.3vmin * var(--fs));
+      --fs-subhead: calc(3.9vmin * var(--fs));
+      --fs-bullet: calc(3.2vmin * var(--fs));
+      --fs-stat-label: calc(1.9vmin * var(--fs));
+      --fs-stat-value: calc(4.2vmin * var(--fs));
+      --avatar: calc(13vmin * var(--fs));
+    }
+    /* Only weight the body downward when there are chips to group it with;
+       a headline-only outro card just centres. */
+    .card.has-stats > .spacer:first-of-type { flex-grow: 2.4; }
+    .rule { margin-top: 2.2vmin; }
+    .subhead { margin-top: 3.2vmin; }
+    .bullets { margin-top: 4.6vmin; gap: 2.4vmin; }
+    .bullets li { padding-left: 4.2vmin; }
+    .bullets li::before { width: 1.4vmin; height: 1.4vmin; }
+    .stats { gap: 2.2vmin; }
+    .chip { padding: 1.9vmin 2.8vmin; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="card" id="card">
+      <header id="header">
+        <div class="eyebrow" id="eyebrow"></div>
+        <div class="rule"></div>
+      </header>
+
+      <div class="spacer"></div>
+
+      <div class="body">
+        <img class="avatar" id="avatar" alt="" referrerpolicy="no-referrer" hidden />
+        <h1 class="headline" id="headline"></h1>
+        <p class="subhead" id="subhead"></p>
+        <ul class="bullets" id="bullets"></ul>
+      </div>
+
+      <div class="spacer"></div>
+
+      <footer class="stats" id="stats"></footer>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict'
+
+  const root = document.documentElement
+  const el = {
+    card: document.getElementById('card'),
+    header: document.getElementById('header'),
+    eyebrow: document.getElementById('eyebrow'),
+    avatar: document.getElementById('avatar'),
+    headline: document.getElementById('headline'),
+    subhead: document.getElementById('subhead'),
+    bullets: document.getElementById('bullets'),
+    stats: document.getElementById('stats'),
+  }
+
+  // Every string from a card goes through textContent. Card data is scraped
+  // from GitHub/HN, so a description containing `<script>` is normal input,
+  // not an attack to be sanitized away — it just has to render as text.
+  const setText = (node, value) => {
+    const text = value == null ? '' : String(value)
+    node.textContent = text
+    node.hidden = text.trim().length === 0
+    return node
+  }
+
+  const clearChildren = (node) => {
+    while (node.firstChild) node.removeChild(node.firstChild)
+  }
+
+  /**
+   * Load the optional avatar. Resolves once we know whether it rendered; the
+   * image is the only remote asset in the whole card, so a dead URL, a slow
+   * host or an offline box must degrade to "no badge" instead of stalling or
+   * leaving a broken-image glyph in the layout.
+   */
+  const loadImage = (url) => new Promise((resolve) => {
+    const img = el.avatar
+    img.onload = null
+    img.onerror = null
+    img.removeAttribute('src') // force a fresh load even if the URL repeats
+    if (!url) {
+      img.hidden = true
+      resolve(false)
+      return
+    }
+    let settled = false
+    const done = (ok) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      img.hidden = !ok
+      resolve(ok)
+    }
+    const timer = setTimeout(() => done(false), 6000)
+    img.onload = () => done(img.naturalWidth > 0)
+    img.onerror = () => done(false)
+    img.hidden = false
+    img.src = url
+  })
+
+  const renderBullets = (bullets) => {
+    clearChildren(el.bullets)
+    const items = Array.isArray(bullets) ? bullets.filter((b) => b != null && String(b).trim()) : []
+    for (const bullet of items) {
+      const li = document.createElement('li')
+      li.textContent = String(bullet)
+      el.bullets.appendChild(li)
+    }
+    el.bullets.hidden = items.length === 0
+  }
+
+  const renderStats = (stats) => {
+    clearChildren(el.stats)
+    const items = Array.isArray(stats) ? stats.filter((s) => s && (s.label != null || s.value != null)) : []
+    for (const stat of items) {
+      const chip = document.createElement('div')
+      chip.className = 'chip'
+      const label = document.createElement('span')
+      label.className = 'label'
+      label.textContent = String(stat.label ?? '')
+      const value = document.createElement('span')
+      value.className = 'value'
+      value.textContent = String(stat.value ?? '')
+      chip.appendChild(label)
+      chip.appendChild(value)
+      el.stats.appendChild(chip)
+    }
+    el.stats.hidden = items.length === 0
+  }
+
+  /**
+   * Step the headline down until it fits two lines. Long repo slugs
+   * ("ggml-org/llama.cpp-experimental-server-bindings") are the whole reason
+   * this exists: at the default size they'd run to four lines and shove the
+   * stat chips off-frame.
+   */
+  const fitHeadline = (scale) => {
+    const vmin = Math.min(window.innerWidth, window.innerHeight) / 100
+    const portrait = window.innerHeight > window.innerWidth
+    // Portrait gets a bigger ceiling for the same reason the CSS above bumps
+    // the body type; long slugs still shrink themselves down from it.
+    const maxPx = (portrait ? 15 : 12) * vmin * scale
+    const minPx = 4.2 * vmin * scale
+    let size = maxPx
+    el.headline.style.fontSize = size + 'px'
+    for (let i = 0; i < 40 && size > minPx; i++) {
+      const lineHeight = parseFloat(getComputedStyle(el.headline).lineHeight) || size * 1.03
+      if (Math.round(el.headline.scrollHeight / lineHeight) <= 2) break
+      size = Math.max(minPx, size * 0.94)
+      el.headline.style.fontSize = size + 'px'
+    }
+  }
+
+  const overflows = () => el.card.scrollHeight - el.card.clientHeight > 1
+
+  /**
+   * Second pass: if a card is genuinely dense (avatar + long headline + three
+   * bullets + four chips on a 1080-wide shorts frame) shrink everything
+   * together rather than clipping the chips at the bottom edge.
+   */
+  const fitCard = () => {
+    let scale = 1
+    root.style.setProperty('--fs', '1')
+    fitHeadline(scale)
+    while (scale > 0.6 && overflows()) {
+      scale = Math.round((scale - 0.04) * 100) / 100
+      root.style.setProperty('--fs', String(scale))
+      fitHeadline(scale)
+    }
+  }
+
+  /**
+   * Render one card. Called once per card via page.evaluate on a page that is
+   * loaded exactly once per run, so it must fully reset state each time —
+   * nothing from the previous card may leak into this one.
+   */
+  window.__renderCard = async (card, theme) => {
+    const c = card || {}
+    const t = theme || {}
+
+    if (t.background) root.style.setProperty('--bg', t.background)
+    if (t.foreground) root.style.setProperty('--fg', t.foreground)
+    if (t.muted) root.style.setProperty('--muted', t.muted)
+    if (t.fontFamily) root.style.setProperty('--font', t.fontFamily)
+    // Per-card accent wins over the theme accent; both feed the glow, rule,
+    // bullet markers and chip edges via color-mix.
+    root.style.setProperty('--accent', c.accent || t.accent || '#7c5cff')
+
+    setText(el.eyebrow, c.eyebrow)
+    // The rule belongs to the eyebrow: on its own at the top of an outro card
+    // it reads as a rendering glitch, not as design.
+    el.header.hidden = el.eyebrow.hidden
+    setText(el.headline, c.headline)
+    setText(el.subhead, c.subhead)
+    renderBullets(c.bullets)
+    renderStats(c.stats)
+    el.card.classList.toggle('has-stats', !el.stats.hidden)
+
+    await loadImage(c.image)
+    // Fonts must be settled before measuring, or the fitter sizes the
+    // headline against fallback metrics and the screenshot reflows after.
+    if (document.fonts && document.fonts.ready) await document.fonts.ready
+
+    fitCard()
+    // One more frame so the shrunken layout is actually painted before the
+    // caller screenshots it.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    return true
+  }
+})()
+</script>
+</body>
+</html>

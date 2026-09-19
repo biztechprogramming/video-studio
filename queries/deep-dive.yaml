@@ -1,0 +1,16 @@
+# Single-project deep dive. Override the repo on the command line:
+#   video-studio make -q deep-dive --repos ggml-org/llama.cpp --name llama-cpp
+name: deep-dive
+title: "{query}: a closer look"
+count: 1
+source:
+  type: github_repos
+  repos: []
+script:
+  words_per_segment: 140     # one subject, so each block can run longer
+video:
+  preset: landscape
+youtube:
+  upload: false
+  visibility: unlisted
+  tags: [open source, developer tools]

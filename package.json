@@ -1,0 +1,27 @@
+{
+  "name": "video-studio",
+  "version": "0.1.0",
+  "description": "Turns a query (GitHub trending, a GitHub search, Hacker News, Reddit) into a narrated YouTube video: research → script → render → publish.",
+  "type": "module",
+  "bin": {
+    "video-studio": "./bin/video-studio"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "node src/cli.ts"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "googleapis": "^144.0.0",
+    "playwright": "^1.50.0",
+    "yaml": "^2.6.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

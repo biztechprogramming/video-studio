@@ -1,0 +1,14 @@
+# One language, one week. Swap `language` for python, go, typescript, zig, ...
+name: trending-rust-weekly
+title: "{n} Rust Projects Blowing Up This Week"
+count: 5
+source:
+  type: github_trending
+  language: rust
+  since: weekly
+video:
+  preset: landscape
+youtube:
+  upload: false
+  visibility: unlisted
+  tags: [rust, github, trending, open source]

@@ -1,0 +1,19 @@
+# Daily GitHub trending roundup. The bread-and-butter episode.
+#   video-studio make -q trending-daily
+name: trending-daily
+title: "Top {n} Trending GitHub Projects — {date}"
+count: 5
+source:
+  type: github_trending
+  since: daily
+video:
+  preset: landscape
+narration:
+  voice: onyx
+script:
+  tone: a knowledgeable developer friend showing you something cool — warm, dry, zero hype
+  words_per_segment: 70
+youtube:
+  upload: false          # flip to true, or pass --publish, when you trust a run unattended
+  visibility: unlisted
+  tags: [github, trending, open source, developer tools]
