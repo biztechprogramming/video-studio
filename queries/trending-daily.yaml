@@ -8,6 +8,10 @@ source:
   period: daily
 video:
   preset: landscape
+  cards: overlay         # card rides over generated b-roll; `full` for still slides
+footage:
+  enabled: true          # the expensive part of an episode — see README "Cost per episode"
+  beat_seconds: 8
 narration:
   voice: onyx
 script:

@@ -257,6 +257,43 @@
     .stats { gap: 2.2vmin; }
     .chip { padding: 1.9vmin 2.8vmin; }
   }
+
+  /* ---- overlay variants -------------------------------------------------
+     'hero' and 'badge' are screenshotted with omitBackground and composited
+     over generated b-roll, so every opaque surface here has to become a
+     deliberate scrim rather than a background colour. Ordered last so these
+     win over the portrait block above. */
+  html.variant-hero, html.variant-hero body,
+  html.variant-badge, html.variant-badge body { background: transparent; }
+
+  /* The hero has to stay readable over footage nobody has seen yet: keep the
+     accent glow, and lay a vertical scrim that's light at the top — so the
+     shot reads through — and near-opaque behind the type. */
+  html.variant-hero .stage::before {
+    background:
+      radial-gradient(70% 55% at 8% -8%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 62%),
+      linear-gradient(175deg, rgba(4, 5, 9, 0.30) 0%, rgba(4, 5, 9, 0.80) 46%, rgba(4, 5, 9, 0.93) 100%);
+  }
+  html.variant-hero .stage::after { opacity: 0.3; }
+
+  /* The badge is one block in the lower third. The flex order pulls the
+     eyebrow down to sit with it — left at the top of an otherwise empty
+     frame it reads as a leftover, not as design. */
+  html.variant-badge .stage::before {
+    background: linear-gradient(0deg, rgba(4, 5, 9, 0.95) 0%, rgba(4, 5, 9, 0.88) 20%, rgba(4, 5, 9, 0.5) 38%, transparent 58%);
+  }
+  html.variant-badge .stage::after { display: none; }
+  html.variant-badge .avatar,
+  html.variant-badge .subhead,
+  html.variant-badge .bullets { display: none !important; }
+  html.variant-badge .card > .spacer { order: 1; flex-grow: 1; }
+  html.variant-badge .card > header { order: 2; }
+  html.variant-badge .card > .body { order: 3; }
+  html.variant-badge .card > footer { order: 4; }
+  html.variant-badge .rule { max-width: 44vmin; }
+  html.variant-badge .headline { margin-top: 1.4vmin; }
+  html.variant-badge .stats { margin-top: 2.4vmin; gap: 1.4vmin; }
+  html.variant-badge .chip { padding: 1.1vmin 1.9vmin; }
 </style>
 </head>
 <body>
@@ -379,18 +416,22 @@
    * this exists: at the default size they'd run to four lines and shove the
    * stat chips off-frame.
    */
-  const fitHeadline = (scale) => {
+  const fitHeadline = (scale, variant) => {
     const vmin = Math.min(window.innerWidth, window.innerHeight) / 100
     const portrait = window.innerHeight > window.innerWidth
+    const badge = variant === 'badge'
     // Portrait gets a bigger ceiling for the same reason the CSS above bumps
-    // the body type; long slugs still shrink themselves down from it.
-    const maxPx = (portrait ? 15 : 12) * vmin * scale
-    const minPx = 4.2 * vmin * scale
+    // the body type; long slugs still shrink themselves down from it. The
+    // badge is a caption, not a title, so it starts far smaller — and has to
+    // hold one line, because a two-line lower third eats the footage.
+    const maxPx = (badge ? (portrait ? 6.4 : 5) : portrait ? 15 : 12) * vmin * scale
+    const minPx = (badge ? 2.8 : 4.2) * vmin * scale
+    const maxLines = badge ? 1 : 2
     let size = maxPx
     el.headline.style.fontSize = size + 'px'
     for (let i = 0; i < 40 && size > minPx; i++) {
       const lineHeight = parseFloat(getComputedStyle(el.headline).lineHeight) || size * 1.03
-      if (Math.round(el.headline.scrollHeight / lineHeight) <= 2) break
+      if (Math.round(el.headline.scrollHeight / lineHeight) <= maxLines) break
       size = Math.max(minPx, size * 0.94)
       el.headline.style.fontSize = size + 'px'
     }
@@ -403,14 +444,14 @@
    * bullets + four chips on a 1080-wide shorts frame) shrink everything
    * together rather than clipping the chips at the bottom edge.
    */
-  const fitCard = () => {
+  const fitCard = (variant) => {
     let scale = 1
     root.style.setProperty('--fs', '1')
-    fitHeadline(scale)
+    fitHeadline(scale, variant)
     while (scale > 0.6 && overflows()) {
       scale = Math.round((scale - 0.04) * 100) / 100
       root.style.setProperty('--fs', String(scale))
-      fitHeadline(scale)
+      fitHeadline(scale, variant)
     }
   }
 
@@ -419,9 +460,14 @@
    * loaded exactly once per run, so it must fully reset state each time —
    * nothing from the previous card may leak into this one.
    */
-  window.__renderCard = async (card, theme) => {
+  window.__renderCard = async (card, theme, variant) => {
     const c = card || {}
     const t = theme || {}
+    // 'hero' and 'badge' are composited over footage; 'full' still stands on
+    // its own (the thumbnail, and the no-footage fallback).
+    const v = variant === 'hero' || variant === 'badge' ? variant : 'full'
+    root.classList.remove('variant-full', 'variant-hero', 'variant-badge')
+    root.classList.add('variant-' + v)
 
     if (t.background) root.style.setProperty('--bg', t.background)
     if (t.foreground) root.style.setProperty('--fg', t.foreground)
@@ -446,7 +492,7 @@
     // headline against fallback metrics and the screenshot reflows after.
     if (document.fonts && document.fonts.ready) await document.fonts.ready
 
-    fitCard()
+    fitCard(v)
     // One more frame so the shrunken layout is actually painted before the
     // caller screenshots it.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))

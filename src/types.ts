@@ -40,9 +40,18 @@ export interface QueryDef {
   source: SourceSpec
   /** How many items to cover. */
   count: number
-  video?: { preset?: 'landscape' | 'shorts'; width?: number; height?: number; fps?: number }
+  video?: {
+    preset?: 'landscape' | 'shorts'
+    width?: number
+    height?: number
+    fps?: number
+    /** 'overlay' composites the card over moving footage; 'full' cuts to a still. */
+    cards?: CardMode
+  }
   narration?: { voice?: string; model?: string; enabled?: boolean }
   script?: { model?: string; tone?: string; words_per_segment?: number }
+  /** Generative b-roll that plays under the card overlays. */
+  footage?: { enabled?: boolean; model?: string; size?: string; beat_seconds?: number }
   youtube?: {
     upload?: boolean
     visibility?: 'public' | 'unlisted' | 'private'
@@ -75,10 +84,42 @@ export interface Episode {
   description: string
   tags: string[]
   video: { width: number; height: number; fps: number }
+  /**
+   * How a segment's card reaches the screen. 'overlay' (the default) composites
+   * it over moving footage so the episode never cuts to a slide; 'full' is the
+   * old behaviour, a still frame of its own.
+   */
+  cards?: CardMode
+  footage?: FootageSettings
   narration: { enabled: boolean; voice?: string; model?: string }
   youtube: { upload: boolean; visibility: 'public' | 'unlisted' | 'private' }
   music?: { path: string; volume: number }
   segments: Segment[]
+}
+
+export type CardMode = 'overlay' | 'full'
+
+/** Generative b-roll: the footage the card overlay sits on top of. */
+export interface FootageSettings {
+  enabled: boolean
+  /** Video model, e.g. "sora-2". Defaults to $OPENAI_VIDEO_MODEL. */
+  model?: string
+  /** Generated frame size, e.g. "1280x720". Defaults to the frame's orientation. */
+  size?: string
+  /** Seconds to request per beat. The API only accepts a few discrete values. */
+  beatSeconds?: number
+}
+
+/**
+ * One generated shot. A segment carries a couple of these; the renderer uses
+ * as many as the narration needs and cycles them if it needs more, so the
+ * script doesn't have to know how long the voice track turned out.
+ */
+export interface FootageBeat {
+  /** The prompt handed to the video model. */
+  prompt: string
+  /** Override the episode's beat length for this shot. */
+  seconds?: number
 }
 
 export type Segment = CardSegment | RepoSegment
@@ -90,6 +131,8 @@ export interface CardSegment {
   narration?: string
   /** Minimum seconds on screen, independent of narration length. */
   hold?: number
+  /** Generated shots this card is composited over. */
+  broll?: FootageBeat[]
 }
 
 /** A subject: its stats card, then a live walkthrough of its page. */
@@ -101,6 +144,8 @@ export interface RepoSegment {
   card: CardContent
   /** Narration that plays over the stats card. */
   narration?: string
+  /** Generated shots the stats card is composited over. */
+  broll?: FootageBeat[]
   /** The live-browser portion. Omit to show only the card. */
   browse?: {
     narration?: string

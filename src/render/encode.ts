@@ -73,6 +73,135 @@ export async function renderStillClip(opts: {
 }
 
 /**
+ * Composite a card over moving footage — the clip type that replaced the
+ * full-frame slide.
+ *
+ * Two PNG layers, both captured with a transparent background:
+ *   hero  — the whole card, scrimmed so the footage still reads underneath.
+ *           Holds for a beat, then dissolves away.
+ *   badge — a lower third (eyebrow, headline, stat chips) that fades in as the
+ *           hero leaves and stays for the rest of the clip.
+ *
+ * Nothing fades to black at either end. A fade-out per segment is precisely
+ * what made the old cut feel like a deck being advanced; the footage runs
+ * straight into the next clip instead.
+ */
+export async function renderFootageClip(opts: {
+  footagePath: string
+  audioPath?: string
+  /** Full-frame card PNG with alpha. */
+  heroPath: string
+  /** Lower-third PNG with alpha. Omitted on clips too short to earn one. */
+  badgePath?: string
+  durationSec: number
+  size: ClipSize
+  outPath: string
+}): Promise<string> {
+  const { size, outPath } = opts
+  await fs.mkdir(dirname(outPath), { recursive: true })
+  const duration = Math.max(1.2, opts.durationSec)
+
+  // Hold the hero long enough to be read, but never so long that the clip is
+  // a slide with a moving backdrop: a third of the clip, bounded either side.
+  const heroHold = clamp(duration * 0.34, 1.8, 3.2, Math.max(1, duration - 1.6))
+  const heroFade = 0.8
+  const badgeIn = heroHold + 0.25
+  // Below ~4s there isn't room for the hand-off to land, so the hero simply
+  // holds and there is no badge at all.
+  const badge = duration >= 4 && opts.badgePath ? opts.badgePath : undefined
+
+  const inputs: string[] = ['-y']
+  // Loop the b-roll: the narration is measured after the fact and may outrun
+  // the footage we paid to generate. -t below is what actually ends the clip.
+  inputs.push('-stream_loop', '-1', '-i', opts.footagePath)
+  if (opts.audioPath) inputs.push('-i', opts.audioPath)
+  else inputs.push(...SILENCE)
+  inputs.push('-loop', '1', '-i', opts.heroPath)
+  if (badge) inputs.push('-loop', '1', '-i', badge)
+
+  const parts = [
+    // Fill the frame rather than pillarboxing: generated footage comes back at
+    // the model's own size, which is never exactly the delivered frame.
+    `[0:v]scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,` +
+      `crop=${size.width}:${size.height},setsar=1,fps=${size.fps}[bg];`,
+    `[2:v]format=rgba,fade=t=out:st=${heroHold.toFixed(3)}:d=${heroFade}:alpha=1[hero];`,
+    `[bg][hero]overlay=0:0:format=auto${badge ? '[withhero];' : ',format=yuv420p[v];'}`,
+  ]
+  if (badge) {
+    parts.push(
+      `[3:v]format=rgba,fade=t=in:st=${badgeIn.toFixed(3)}:d=0.6:alpha=1[badge];`,
+      `[withhero][badge]overlay=0:0:format=auto,format=yuv420p[v];`,
+    )
+  }
+  // Same 250ms of air before the voice as the still clips had.
+  parts.push(`[1:a]adelay=250|250,apad[a]`)
+
+  await runFfmpeg([
+    ...inputs,
+    '-filter_complex', parts.join(''),
+    '-map', '[v]', '-map', '[a]',
+    '-t', duration.toFixed(3),
+    ...V_CODEC,
+    ...A_CODEC,
+    outPath,
+  ])
+  return outPath
+}
+
+/**
+ * Cut a montage out of clips that already exist — used for the intro, which
+ * teases the episode with a second of each item's own footage instead of
+ * listing them on a slide. Free: nothing new is generated or recorded.
+ *
+ * When the montage needs more shots than there are sources, it cycles back
+ * through them taking a *later* window each pass, so a repeat isn't the same
+ * frames again.
+ */
+export async function buildMontage(opts: {
+  inputs: string[]
+  size: ClipSize
+  durationSec: number
+  /** Seconds per shot. Short enough to read as a cut-up, long enough to see. */
+  shotSec?: number
+  outPath: string
+}): Promise<string> {
+  const { size, outPath } = opts
+  if (opts.inputs.length === 0) throw new Error('montage: no source clips')
+  await fs.mkdir(dirname(outPath), { recursive: true })
+  const shotSec = opts.shotSec ?? 2.2
+  const count = Math.min(16, Math.max(2, Math.ceil(opts.durationSec / shotSec)))
+
+  const durations = new Map<string, number>()
+  for (const input of opts.inputs) durations.set(input, await probeDuration(input).catch(() => shotSec))
+
+  const shots = Array.from({ length: count }, (_, k) => {
+    const src = opts.inputs[k % opts.inputs.length]
+    const pass = Math.floor(k / opts.inputs.length)
+    const available = Math.max(0, (durations.get(src) ?? shotSec) - shotSec)
+    return { src, start: Math.min(pass * shotSec, available) }
+  })
+
+  const scale = shots
+    .map((_, i) =>
+      `[${i}:v]scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,` +
+      `crop=${size.width}:${size.height},setsar=1,fps=${size.fps}[v${i}];`,
+    )
+    .join('')
+  const chain = shots.map((_, i) => `[v${i}]`).join('')
+
+  await runFfmpeg([
+    '-y',
+    ...shots.flatMap((s) => ['-ss', s.start.toFixed(3), '-t', shotSec.toFixed(3), '-i', s.src]),
+    '-filter_complex', `${scale}${chain}concat=n=${shots.length}:v=1:a=0[v]`,
+    '-map', '[v]',
+    '-an',
+    ...V_CODEC,
+    outPath,
+  ])
+  return outPath
+}
+
+/**
  * Convert one browser recording (Playwright writes WebM) into a clip with the
  * same parameters as the card clips, mixing its narration in from the top.
  */
@@ -281,6 +410,11 @@ function probeStream(path: string): Promise<StreamParams | null> {
       }
     })
   })
+}
+
+/** Clamp `v` into [lo, hi], then hard-cap it at `ceiling`. */
+function clamp(v: number, lo: number, hi: number, ceiling: number): number {
+  return Math.min(Math.max(Math.min(Math.max(v, lo), hi), 0), ceiling)
 }
 
 export function runFfmpeg(args: string[]): Promise<void> {

@@ -7,7 +7,7 @@ import { fetchItems } from './sources/index.ts'
 import { writeEpisode } from './script/writer.ts'
 import { renderEpisode, formatTimestamp } from './render/index.ts'
 import { authenticate, uploadToYouTube } from './publish/youtube.ts'
-import type { Episode, QueryDef, SourceItem, SourceSpec } from './types.ts'
+import type { CardMode, Episode, QueryDef, SourceItem, SourceSpec } from './types.ts'
 
 loadEnv()
 
@@ -39,6 +39,9 @@ function addQueryOptions(cmd: Command): Command {
     .option('--preset <preset>', 'landscape (16:9) or shorts (9:16)')
     .option('--voice <voice>', 'TTS voice: onyx, nova, alloy, echo, fable, shimmer, ...')
     .option('--music <file>', 'Background music track mixed under the episode')
+    .option('--cards <mode>', 'overlay: cards ride over generated b-roll | full: cards are still slides')
+    .option('--footage-model <model>', 'Video model for the b-roll (default: $OPENAI_VIDEO_MODEL or sora-2)')
+    .option('--no-footage', 'Skip generated b-roll; every card renders as a still slide')
 }
 
 program
@@ -127,6 +130,7 @@ program
   .description('Stage 3: render episodes/<slug>/script.yaml to an MP4.')
   .option('--only <indices>', 'Re-render only these segments (0-based, comma-separated); reuse the rest')
   .option('--headed', 'Show the browser while recording walkthroughs', false)
+  .option('--no-footage', 'Skip generated b-roll; every card renders as a still slide')
   .action(async (slug: string, opts) => {
     const paths = episodePaths(slug)
     const episode = await readEpisode(paths.script)
@@ -134,7 +138,7 @@ program
       ? String(opts.only).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n))
       : undefined
 
-    const result = await renderEpisode({ episode, only, headless: !opts.headed, log })
+    const result = await renderEpisode({ episode, only, headless: !opts.headed, footage: opts.footage, log })
     log(`\nVideo: ${result.videoPath}  (${formatTimestamp(result.durationSec)})`)
     if (result.chapters.length) log('Chapters:\n  ' + result.chapters.join('\n  '))
     console.log(result.videoPath)
@@ -193,7 +197,7 @@ addQueryOptions(
     }
 
     log(`\n── 3/4 render`)
-    const result = await renderEpisode({ episode, headless: !opts.headed, log })
+    const result = await renderEpisode({ episode, headless: !opts.headed, footage: opts.footage, log })
     log(`Video: ${result.videoPath}  (${formatTimestamp(result.durationSec)})`)
 
     const shouldPublish = opts.publish || episode.youtube.upload
@@ -299,8 +303,22 @@ async function resolveQuery(opts: Record<string, unknown>): Promise<QueryDef> {
   if (opts.preset) merged.video = { ...merged.video, preset: String(opts.preset) as 'landscape' | 'shorts' }
   if (opts.voice) merged.narration = { ...merged.narration, voice: String(opts.voice) }
   if (opts.music) merged.music = { path: resolve(String(opts.music)), volume: merged.music?.volume ?? 0.12 }
-  merged.video = resolveVideo(merged.video)
+  if (opts.cards) merged.video = { ...merged.video, cards: parseCardMode(String(opts.cards)) }
+  if (opts.footageModel) merged.footage = { ...merged.footage, model: String(opts.footageModel) }
+  // commander gives --no-footage as footage:false; anything else leaves the
+  // saved query's own setting alone.
+  if (opts.footage === false) merged.footage = { ...merged.footage, enabled: false }
+  // Spread rather than assign: resolveVideo only knows about the frame, and
+  // `cards` lives alongside it.
+  merged.video = { ...merged.video, ...resolveVideo(merged.video) }
   return merged
+}
+
+function parseCardMode(value: string): CardMode {
+  if (value !== 'overlay' && value !== 'full') {
+    throw new Error(`--cards must be "overlay" or "full", not "${value}".`)
+  }
+  return value
 }
 
 function specFromFlags(opts: Record<string, unknown>): SourceSpec | undefined {

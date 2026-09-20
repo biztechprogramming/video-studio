@@ -9,6 +9,11 @@ script:
   words_per_segment: 35
 video:
   preset: shorts
+  cards: overlay
+footage:
+  enabled: true
+  # A short segment doesn't need a long shot, and shorts run three of them.
+  beat_seconds: 4
 youtube:
   upload: false
   visibility: unlisted

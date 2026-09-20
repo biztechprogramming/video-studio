@@ -5,9 +5,18 @@ import { chromium, type Browser, type Page } from 'playwright'
 
 import type { CardContent } from '../types.ts'
 
-// Renders the full-screen title / stats cards that sit between the live
-// browser walkthroughs. The markup, CSS and layout fitter all live in
-// templates/card.html; this file is just the Playwright harness around it.
+/** Which cut of the card to render; see the note at the top of this file. */
+export type CardVariant = 'full' | 'hero' | 'badge'
+
+// Renders the title / stats cards. The markup, CSS and layout fitter all live
+// in templates/card.html; this file is just the Playwright harness around it.
+//
+// Three variants come out of the same template:
+//   full  — an opaque frame of its own (the thumbnail, and the fallback when
+//           there's no footage to sit on)
+//   hero  — the same card with a transparent background and a scrim, meant to
+//           be composited over b-roll and then dissolved away
+//   badge — a lower third that survives the hero's exit
 
 export interface CardTheme {
   accent: string
@@ -58,7 +67,7 @@ export class CardRenderer {
    * Chromium launch costs far more than the render itself, so relaunching per
    * card would dominate the runtime.
    */
-  async render(card: CardContent, outPath: string): Promise<string> {
+  async render(card: CardContent, outPath: string, variant: CardVariant = 'full'): Promise<string> {
     const page = await this.ensurePage()
     await fs.mkdir(dirname(outPath), { recursive: true })
 
@@ -67,14 +76,14 @@ export class CardRenderer {
       // where the only contract is the window.__renderCard the template
       // installs. Keeping it free of DOM types also keeps this file
       // compiling without the "dom" lib.
-      (payload: { card: CardContent; theme: CardTheme }) => {
+      (payload: { card: CardContent; theme: CardTheme; variant: CardVariant }) => {
         const render = (globalThis as unknown as {
-          __renderCard?: (card: unknown, theme: unknown) => Promise<boolean>
+          __renderCard?: (card: unknown, theme: unknown, variant: unknown) => Promise<boolean>
         }).__renderCard
         if (typeof render !== 'function') return Promise.resolve(false)
-        return render(payload.card, payload.theme)
+        return render(payload.card, payload.theme, payload.variant)
       },
-      { card, theme: this.theme },
+      { card, theme: this.theme, variant },
     )
     if (!ok) {
       throw new Error(`Card template did not install window.__renderCard: ${this.templatePath}`)
@@ -82,7 +91,8 @@ export class CardRenderer {
 
     // Viewport-sized (not fullPage): the card is deliberately exactly one
     // frame, and a fullPage shot would grow if anything ever overflowed.
-    await page.screenshot({ path: outPath, type: 'png' })
+    // The overlay variants keep their alpha so ffmpeg can composite them.
+    await page.screenshot({ path: outPath, type: 'png', omitBackground: variant !== 'full' })
     return outPath
   }
 
