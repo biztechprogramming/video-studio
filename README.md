@@ -159,6 +159,8 @@ Useful edits:
   Already in `.env`. Video generation needs an account with access to the
   model in `OPENAI_VIDEO_MODEL` (`sora-2` by default); without it the render
   says so once and falls back to still cards.
+- **The gateway** — `.env` points every stage at `http://127.0.0.1:4000/v1`,
+  so `./bin/llm-gateway` must be running. See [Gateway](#gateway).
 - **YouTube OAuth client** — only for `publish`. `.env` already carries the
   client id/secret from `oauth-demo-recorder`, and that project's refresh
   token is reused automatically, so uploads usually work without
@@ -175,6 +177,59 @@ Useful edits:
 
 Anything missing that you could just type is prompted for and written to
 `.env`, rather than failing the run.
+
+## Gateway
+
+`bin/llm-gateway` is a local server that speaks the OpenAI HTTP API and answers
+it from more than one place:
+
+| Route | Backend |
+| --- | --- |
+| `/v1/chat/completions`, model `claude-*` | `claude` CLI, on a Pro/Max login |
+| `/v1/chat/completions`, anything else | `codex` CLI, on a ChatGPT login |
+| `/v1/chat/completions`, model `api:<name>` | proxied to OpenAI, `api:` stripped |
+| `/v1/audio/speech`, `/v1/videos/*` | proxied to OpenAI |
+
+Speech and video are proxied because no subscription covers them. Fronting the
+whole API rather than chat alone is what lets `OPENAI_BASE_URL` sit in `.env`
+permanently instead of being set per command.
+
+```bash
+./bin/llm-gateway          # leave running in its own terminal
+curl -s localhost:4000/healthz
+```
+
+It does not start itself. If it isn't up, every stage fails in milliseconds
+with the command to start it, rather than a bare `fetch failed`.
+
+### What the subscription lane costs you
+
+- **`response_format: json_object` is instruction, not enforcement.** Neither
+  CLI has the parameter, so the adapters ask for JSON and parse defensively —
+  fences stripped, braces sliced. `src/gateway/adapters.ts` does this, and it
+  is the path the script stage actually takes today.
+- **`response_format: json_schema` is enforced, on the Codex lane only.**
+  Codex forwards it via `--output-schema`, which is OpenAI structured output
+  and therefore strict: the schema needs `additionalProperties: false`, and a
+  permissive `{"type":"object"}` is rejected outright. The Claude lane gets the
+  same schema as prompt guidance.
+- **`temperature` and `max_completion_tokens` are ignored.** Nothing to map
+  them onto.
+- **Rate limits are per-5-hours**, not per-minute. `writer.ts` fans out five
+  segments with `Promise.all`; that lands as five near-simultaneous calls.
+- **Tens of seconds per call.** Measured on this repo: 39–66s per segment,
+  3m04s for a full five-segment script including metadata.
+- **`usage` is reported as zeros.** Subscription calls aren't billed per token
+  and inventing numbers would be worse than admitting there are none.
+
+### Using the metered API instead
+
+```bash
+OPENAI_BASE_URL= ./bin/video-studio make --trending --count 5
+```
+
+An empty value falls back to `api.openai.com`, so the gateway needn't be
+running at all.
 
 ## Cards and footage
 

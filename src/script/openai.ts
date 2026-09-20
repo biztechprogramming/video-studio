@@ -1,4 +1,4 @@
-import { requireEnv } from '../config.ts'
+import { gatewayDownError, openaiBaseUrl, requireOpenAIKey } from '../config.ts'
 
 // Reasoning models (gpt-5.x and friends) charge their internal thinking to
 // max_completion_tokens, and a prompt that asks for 300 words of narration can
@@ -72,10 +72,8 @@ export async function chatJson<T>(opts: {
   maxTokens?: number
   temperature?: number
 }): Promise<T> {
-  const apiKey = await requireEnv('OPENAI_API_KEY', {
-    hint: 'Used to write the narration script and to synthesize the voice. Create one at https://platform.openai.com/api-keys',
-    example: 'sk-proj-...',
-  })
+  const base = openaiBaseUrl()
+  const apiKey = await requireOpenAIKey(base)
 
   // Build the body only after the gate: the whole point is to start from what
   // the scout already found out.
@@ -99,7 +97,7 @@ export async function chatJson<T>(opts: {
       const ac = new AbortController()
       const timer = setTimeout(() => ac.abort(), 120_000)
       try {
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        const res = await fetch(`${base}/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify(body),
@@ -160,6 +158,9 @@ export async function chatJson<T>(opts: {
         return JSON.parse(content) as T
       } catch (err) {
         lastErr = err
+        // A gateway that isn't running won't start itself between retries.
+        const down = gatewayDownError(base, err)
+        if (down) throw down
         const retryable = err instanceof RetryableError || (err instanceof Error && err.name === 'AbortError')
         if (!retryable || attempt === maxAttempts) {
           if (err instanceof RetryableError) break

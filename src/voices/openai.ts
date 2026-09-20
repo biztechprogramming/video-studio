@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { gatewayDownError, openaiBaseUrl, openaiKey } from '../config.ts'
 import { DEFAULT_HOST_VOICE, DEFAULT_TTS_MODEL, canAct } from './catalog.ts'
 
 /** One thing to say, in one voice, one way. */
@@ -31,11 +32,13 @@ export class OpenAITTS implements SpeechProvider {
   /** The voice used when a request doesn't name one. */
   readonly voice: string
   private apiKey: string
+  private baseUrl: string
   /** One warning per run, not one per line, when the model can't take direction. */
   private warnedNoDirection = false
 
   constructor(opts: { model?: string; voice?: string } = {}) {
-    const apiKey = process.env.OPENAI_API_KEY
+    this.baseUrl = openaiBaseUrl()
+    const apiKey = openaiKey(this.baseUrl)
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY is not set. Add it to .env or your shell environment.')
     }
@@ -87,7 +90,7 @@ export class OpenAITTS implements SpeechProvider {
       const ac = new AbortController()
       const timer = setTimeout(() => ac.abort(), perAttemptTimeoutMs)
       try {
-        const res = await fetch('https://api.openai.com/v1/audio/speech', {
+        const res = await fetch(`${this.baseUrl}/audio/speech`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -116,6 +119,8 @@ export class OpenAITTS implements SpeechProvider {
         return
       } catch (err) {
         lastErr = err
+        const down = gatewayDownError(this.baseUrl, err)
+        if (down) throw down
         // Non-retryable (4xx) errors: bail immediately.
         if (
           err instanceof Error &&

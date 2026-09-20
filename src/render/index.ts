@@ -11,7 +11,7 @@ import {
   renderFootageClip,
   renderStillClip,
 } from './encode.ts'
-import { DEFAULT_FOOTAGE_MODEL, FootageUnavailableError, buildFootage, defaultFootageSize } from './footage.ts'
+import { FootageUnavailableError, buildFootage, defaultFootageModel, defaultFootageSize } from './footage.ts'
 import { HOST, OpenAITTS, generateNarration, probeDuration, toLines, type NarrationUnit } from '../narration.ts'
 import { DEFAULT_HOST_VOICE } from '../voices/catalog.ts'
 import { episodePaths } from '../config.ts'
@@ -61,7 +61,7 @@ export async function renderEpisode(opts: {
   // behaviour of cutting to a still frame of its own.
   const cardMode = episode.cards ?? 'overlay'
   const footageCfg = episode.footage
-  const footageModel = footageCfg?.model ?? DEFAULT_FOOTAGE_MODEL
+  const footageModel = footageCfg?.model ?? defaultFootageModel()
   const footageSize = footageCfg?.size ?? defaultFootageSize(size.width, size.height)
   const beatSeconds = footageCfg?.beatSeconds ?? DEFAULT_BEAT_SECONDS
   // Mutable: the first "this account can't generate video" answer turns it off

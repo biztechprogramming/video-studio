@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
-import { requireEnv } from '../config.ts'
+import { gatewayDownError, openaiBaseUrl, requireOpenAIKey } from '../config.ts'
 import { runFfmpeg } from './encode.ts'
 import type { FootageBeat } from '../types.ts'
 
@@ -12,8 +12,15 @@ import type { FootageBeat } from '../types.ts'
 // generated shot is the most expensive thing in the whole pipeline — a
 // re-render of an unchanged prompt must never call the API again.
 
-export const DEFAULT_FOOTAGE_MODEL = process.env.OPENAI_VIDEO_MODEL ?? 'sora-2'
-const API_BASE = process.env.OPENAI_VIDEO_BASE_URL ?? 'https://api.openai.com/v1'
+// Both read the environment late, on call. This module is imported before
+// `loadEnv()` runs, so anything captured at module load sees the shell only and
+// silently ignores .env.
+export function defaultFootageModel(): string {
+  return process.env.OPENAI_VIDEO_MODEL ?? 'sora-2'
+}
+function apiBase(): string {
+  return openaiBaseUrl(process.env.OPENAI_VIDEO_BASE_URL)
+}
 
 /** The API accepts only these clip lengths; anything else is a 400. */
 const ALLOWED_SECONDS = [4, 8, 12]
@@ -125,16 +132,13 @@ async function generateShot(opts: {
 }): Promise<void> {
   // A key that isn't there won't be there for the next shot either: raise the
   // whole-run signal so the renderer stops asking after the first segment.
-  const apiKey = await requireEnv('OPENAI_API_KEY', {
-    hint: 'Used to write the script, synthesize the voice, and generate the b-roll footage. Create one at https://platform.openai.com/api-keys',
-    example: 'sk-proj-...',
-  }).catch((err: unknown) => {
+  const apiKey = await requireOpenAIKey(apiBase()).catch((err: unknown) => {
     throw new FootageUnavailableError(err instanceof Error ? err.message : String(err))
   })
   const auth = { Authorization: `Bearer ${apiKey}` }
 
   const created = await withRetries(() =>
-    apiJson<{ id?: string; status?: string; error?: { message?: string } }>(`${API_BASE}/videos`, {
+    apiJson<{ id?: string; status?: string; error?: { message?: string } }>(`${apiBase()}/videos`, {
       method: 'POST',
       headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -156,7 +160,7 @@ async function generateShot(opts: {
     if (Date.now() > deadline) throw new Error(`Generation timed out after ${POLL_TIMEOUT_MS / 60_000} minutes`)
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
     const job = await withRetries(() =>
-      apiJson<{ status?: string; progress?: number; error?: { message?: string } }>(`${API_BASE}/videos/${id}`, {
+      apiJson<{ status?: string; progress?: number; error?: { message?: string } }>(`${apiBase()}/videos/${id}`, {
         headers: auth,
       }),
     )
@@ -172,7 +176,7 @@ async function generateShot(opts: {
   }
 
   const bytes = await withRetries(async () => {
-    const res = await apiFetch(`${API_BASE}/videos/${id}/content`, { headers: auth })
+    const res = await apiFetch(`${apiBase()}/videos/${id}/content`, { headers: auth })
     return Buffer.from(await res.arrayBuffer())
   })
   if (bytes.length === 0) throw new Error('Video API returned an empty file')
@@ -243,7 +247,12 @@ async function apiFetch(url: string, init: RequestInit): Promise<Response> {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), 120_000)
   try {
-    const res = await fetch(url, { ...init, signal: ac.signal })
+    const res = await fetch(url, { ...init, signal: ac.signal }).catch((err: unknown) => {
+      // Unreachable gateway stops the whole run rather than one shot: every
+      // later segment would fail the same way.
+      const down = gatewayDownError(apiBase(), err)
+      throw down ? new FootageUnavailableError(down.message) : err
+    })
     if (res.ok) return res
     const text = await res.text()
     const error = parseError(text)

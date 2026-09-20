@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Local OpenAI-shaped gateway: chat from a subscription CLI, speech and video
+# proxied upstream. Node >= 22.6 strips the TypeScript types itself.
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+exec node --experimental-strip-types --no-warnings "$SCRIPT_DIR/../src/gateway/main.ts" "$@"
