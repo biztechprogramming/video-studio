@@ -2,7 +2,7 @@ import { chatJson } from './openai.ts'
 import type { CardContent, Episode, QueryDef, RepoSegment, Segment, SourceItem } from '../types.ts'
 import { resolveVideo, slugify, today } from '../config.ts'
 
-export const DEFAULT_SCRIPT_MODEL = process.env.OPENAI_SCRIPT_MODEL ?? 'gpt-4o'
+export const DEFAULT_SCRIPT_MODEL = process.env.OPENAI_SCRIPT_MODEL ?? 'gpt-5.6-luna'
 
 const VOICE_RULES = `
 Write for the ear, not the page. Hard rules:

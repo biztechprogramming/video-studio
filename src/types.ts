@@ -54,7 +54,7 @@ export interface QueryDef {
 }
 
 export type SourceSpec =
-  | { type: 'github_trending'; language?: string; since?: 'daily' | 'weekly' | 'monthly'; spoken_language?: string }
+  | { type: 'github_trending'; language?: string; period?: 'daily' | 'weekly' | 'monthly'; spoken_language?: string }
   | { type: 'github_search'; query: string; sort?: 'stars' | 'updated' | 'forks'; order?: 'desc' | 'asc' }
   | { type: 'github_repos'; repos: string[] }
   | { type: 'hackernews'; query?: string; tags?: string; points?: number; days?: number }

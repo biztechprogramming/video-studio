@@ -208,7 +208,8 @@ function escapeRe(s: string): string {
 
 function trendingUrl(spec: Extract<SourceSpec, { type: 'github_trending' }>): string {
   const path = spec.language ? `/trending/${encodeURIComponent(spec.language)}` : '/trending'
-  const params = new URLSearchParams({ since: spec.since ?? 'daily' })
+  // GitHub's own query parameter is `since`; the manifest calls it `period`.
+  const params = new URLSearchParams({ since: spec.period ?? 'daily' })
   if (spec.spoken_language) params.set('spoken_language_code', spec.spoken_language)
   return `https://github.com${path}?${params}`
 }

@@ -5,7 +5,7 @@ title: "Top {n} Trending GitHub Projects — {date}"
 count: 5
 source:
   type: github_trending
-  since: daily
+  period: daily
 video:
   preset: landscape
 narration:

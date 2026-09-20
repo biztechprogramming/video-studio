@@ -5,7 +5,7 @@ count: 5
 source:
   type: github_trending
   language: rust
-  since: weekly
+  period: weekly
 video:
   preset: landscape
 youtube:

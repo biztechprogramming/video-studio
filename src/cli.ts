@@ -27,7 +27,7 @@ function addQueryOptions(cmd: Command): Command {
   return cmd
     .option('-q, --query <name>', 'Saved query from queries/<name>.yaml')
     .option('--trending [language]', 'GitHub trending, optionally for one language (e.g. --trending rust)')
-    .option('--since <window>', 'Trending window: daily | weekly | monthly', 'daily')
+    .option('--period <window>', 'Trending window: daily | weekly | monthly', 'daily')
     .option('--search <q>', 'GitHub search query, e.g. "topic:mcp stars:>500 pushed:>2026-09-01"')
     .option('--repos <list>', 'Explicit repos, comma-separated: owner/name,owner/name')
     .option('--hn [q]', 'Hacker News stories, optionally matching a query')
@@ -100,7 +100,7 @@ addQueryOptions(
 program
   .command('script <slug>')
   .description('Stage 2: write the narration script to episodes/<slug>/script.yaml (edit it before rendering).')
-  .option('--model <model>', 'OpenAI model for the script (default: $OPENAI_SCRIPT_MODEL or gpt-4o)')
+  .option('--model <model>', 'OpenAI model for the script (default: $OPENAI_SCRIPT_MODEL or gpt-5.6-luna)')
   .option('--tone <tone>', 'How it should sound')
   .option('--force', 'Overwrite an existing script.yaml', false)
   .action(async (slug: string, opts) => {
@@ -304,9 +304,9 @@ async function resolveQuery(opts: Record<string, unknown>): Promise<QueryDef> {
 }
 
 function specFromFlags(opts: Record<string, unknown>): SourceSpec | undefined {
-  const since = (opts.since as 'daily' | 'weekly' | 'monthly') ?? 'daily'
+  const period = (opts.period as 'daily' | 'weekly' | 'monthly') ?? 'daily'
   if (opts.trending !== undefined) {
-    return { type: 'github_trending', since, language: typeof opts.trending === 'string' ? opts.trending : undefined }
+    return { type: 'github_trending', period, language: typeof opts.trending === 'string' ? opts.trending : undefined }
   }
   if (opts.search) return { type: 'github_search', query: String(opts.search), sort: 'stars' }
   if (opts.repos) {
@@ -333,7 +333,7 @@ function specFromFlags(opts: Record<string, unknown>): SourceSpec | undefined {
 
 function defaultName(spec: SourceSpec): string {
   switch (spec.type) {
-    case 'github_trending': return `trending${spec.language ? '-' + spec.language : ''}-${spec.since ?? 'daily'}`
+    case 'github_trending': return `trending${spec.language ? '-' + spec.language : ''}-${spec.period ?? 'daily'}`
     case 'github_search': return slugify(spec.query) || 'github-search'
     case 'github_repos': return spec.repos.length === 1 ? slugify(spec.repos[0]) : 'repo-roundup'
     case 'hackernews': return spec.query ? slugify(`hn-${spec.query}`) : 'hacker-news'
@@ -343,7 +343,7 @@ function defaultName(spec: SourceSpec): string {
 
 function describeSpec(spec: SourceSpec): string {
   switch (spec.type) {
-    case 'github_trending': return `GitHub trending ${spec.language ?? 'all languages'} (${spec.since ?? 'daily'})`
+    case 'github_trending': return `GitHub trending ${spec.language ?? 'all languages'} (${spec.period ?? 'daily'})`
     case 'github_search': return `GitHub search: ${spec.query}`
     case 'github_repos': return `repos: ${spec.repos.join(', ')}`
     case 'hackernews': return `Hacker News${spec.query ? `: ${spec.query}` : ''}`

@@ -50,7 +50,7 @@ stdout; everything else goes to stderr, so it composes in a shell pipeline.
 A query says what an episode is about. Use flags for a one-off:
 
 ```bash
-./bin/video-studio make --trending rust --since weekly --count 5
+./bin/video-studio make --trending rust --period weekly --count 5
 ./bin/video-studio make --search "topic:mcp stars:>300 pushed:>2026-06-01"
 ./bin/video-studio make --repos ggml-org/llama.cpp --name llama-cpp
 ./bin/video-studio make --hn "local llm" --points 200 --days 7
@@ -74,7 +74,7 @@ title: "Top {n} Trending GitHub Projects — {date}"   # {n} {date} {query}
 count: 5
 source:
   type: github_trending      # github_search | github_repos | hackernews | reddit
-  since: daily               # daily | weekly | monthly
+  period: daily              # daily | weekly | monthly
   language: rust             # optional
 video:
   preset: landscape          # landscape (1920x1080) | shorts (1080x1920)
@@ -147,7 +147,7 @@ Anything missing that you could just type is prompted for and written to
 
 ## Cost per episode
 
-Roughly, for a 5-item landscape episode: a handful of cents of `gpt-4o` for
+Roughly, for a 5-item landscape episode: a handful of cents of `gpt-5.6-luna` for
 the script, and `tts-1-hd` at $30 per million characters — about 4,000
 characters of narration, so ~$0.12. Call it $0.20 an episode. Re-renders reuse
 the TTS cache and cost nothing.

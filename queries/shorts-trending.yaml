@@ -4,7 +4,7 @@ title: "{n} GitHub projects trending today"
 count: 3
 source:
   type: github_trending
-  since: daily
+  period: daily
 script:
   words_per_segment: 35
 video:
