@@ -136,7 +136,7 @@ Useful edits:
 | `publish <slug>` | Stage 4 → YouTube. `--visibility`, `--title`, `--no-thumbnail`. |
 | `episodes` | Every episode and how far it got. |
 | `queries` | Saved queries. |
-| `auth` | One-time YouTube sign-in. |
+| `auth` | YouTube sign-in. Checks the saved token; `--force` re-runs consent. |
 
 ## Prerequisites
 
@@ -148,8 +148,14 @@ Useful edits:
   says so once and falls back to still cards.
 - **YouTube OAuth client** — only for `publish`. `.env` already carries the
   client id/secret from `oauth-demo-recorder`, and that project's refresh
-  token is reused automatically, so uploads work without re-authenticating.
-  On a fresh machine: `./bin/video-studio auth`.
+  token is reused automatically, so uploads usually work without
+  re-authenticating. On a fresh machine: `./bin/video-studio auth`.
+
+  If `publish` fails with `invalid_grant`, the saved refresh token has died.
+  Run `./bin/video-studio auth --force` to sign in again. To stop it happening
+  every week, set the OAuth consent screen for this client to **In production**
+  in the Google Cloud console — while it is in **Testing**, Google expires
+  refresh tokens after 7 days.
 - **GitHub token** — optional. Unauthenticated GitHub API access is 60
   requests/hour; the sources fall back to `gh auth token` automatically, and
   `GITHUB_TOKEN` in `.env` overrides that.

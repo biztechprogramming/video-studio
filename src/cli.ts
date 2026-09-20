@@ -46,9 +46,10 @@ function addQueryOptions(cmd: Command): Command {
 
 program
   .command('auth')
-  .description('One-time YouTube sign-in. Reuses the oauth-demo-recorder token if you already have one.')
-  .action(async () => {
-    await authenticate()
+  .description('YouTube sign-in. Reuses the oauth-demo-recorder token if it still works.')
+  .option('--force', 'Ignore any saved token and run the consent flow again', false)
+  .action(async (opts) => {
+    await authenticate({ force: opts.force })
   })
 
 program
