@@ -42,7 +42,8 @@ export interface QueryDef {
   count: number
   video?: { preset?: 'landscape' | 'shorts'; width?: number; height?: number; fps?: number }
   narration?: { voice?: string; model?: string; enabled?: boolean }
-  script?: { model?: string; tone?: string; words_per_segment?: number }
+  /** `style` picks the editorial voice; see src/script/styles.ts for the names. */
+  script?: { model?: string; style?: string; tone?: string; words_per_segment?: number }
   youtube?: {
     upload?: boolean
     visibility?: 'public' | 'unlisted' | 'private'

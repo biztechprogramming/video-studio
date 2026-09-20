@@ -66,7 +66,7 @@ A query says what an episode is about. Use flags for a one-off:
 
 Shipped examples: `trending-daily`, `trending-rust-weekly`, `mcp-servers`
 (interest-driven GitHub search), `hn-ai-week`, `deep-dive` (single project),
-`shorts-trending` (vertical 9:16).
+`shorts-trending` (vertical 9:16), `cold-open-trending` (the cold-open style).
 
 ```yaml
 name: trending-daily
@@ -81,6 +81,7 @@ video:
 narration:
   voice: onyx                # any OpenAI TTS voice
 script:
+  style: explainer           # explainer (default) | cold-open
   tone: warm, dry, zero hype
   words_per_segment: 70
 music:
@@ -91,6 +92,33 @@ youtube:
   visibility: unlisted
   tags: [github, trending]
 ```
+
+## Styles
+
+A style is the editorial voice: how a segment opens, what each half of the
+narration is for, and how the intro and outro behave. Pick one per episode,
+on the command line or in the query file.
+
+```bash
+./bin/video-studio styles                              # what each one sounds like
+./bin/video-studio make --trending --style cold-open
+./bin/video-studio script <slug> --style cold-open --force
+```
+
+| Style | What it does |
+| --- | --- |
+| `explainer` | The default. Warm walkthrough — what it does, who it's for, then a level deeper — counted down so the episode builds to its best subject. |
+| `cold-open` | No runway. Every segment opens mid-motion on the single most surprising true thing about the project, stated flatly: an absurd constraint, a number that reads like a typo, a deliberate refusal. Two sentences resolve it, the rest is why it's true and what it costs, and each segment ends on a question the next one answers. |
+
+`cold-open` is not a countdown: ranking a segment forces "coming in at number
+three" into the opening line, which is the exact setup the style exists to
+delete. Items play best-first, the intro card is one sharp sentence rather than
+a lineup, and the outro is a thought rather than a sign-off.
+
+Styles only shape the narration — every style produces the same `script.yaml`
+shape, so rendering and publishing are unchanged. Passing `--style` also drops
+a `tone:` set in the query file, since a tone written for one style fights the
+next one's rules; pass `--tone` alongside it to set your own.
 
 ## Editing an episode
 
@@ -122,11 +150,12 @@ Useful edits:
 | --- | --- |
 | `make` | All four stages. `--pause` stops after the script, `--publish` uploads. |
 | `research` | Stage 1 → `research.json`. Prints the slug. |
-| `script <slug>` | Stage 2 → `script.yaml`. `--force` rewrites, `--model`/`--tone` tune it. |
+| `script <slug>` | Stage 2 → `script.yaml`. `--force` rewrites, `--style`/`--model`/`--tone` tune it. |
 | `render <slug>` | Stage 3 → `<slug>.mp4`. `--only`, `--headed`. |
 | `publish <slug>` | Stage 4 → YouTube. `--visibility`, `--title`, `--no-thumbnail`. |
 | `episodes` | Every episode and how far it got. |
 | `queries` | Saved queries. |
+| `styles` | Narration styles usable with `--style`. |
 | `auth` | One-time YouTube sign-in. |
 
 ## Prerequisites

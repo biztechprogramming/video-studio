@@ -1,0 +1,20 @@
+# Trending roundup in the cold-open style: no setup, each segment opens on the
+# one thing about the project that shouldn't be true.
+#   video-studio make -q cold-open-trending
+name: cold-open-trending
+title: "Five things that shouldn't work — {date}"
+count: 5
+source:
+  type: github_trending
+  period: daily
+video:
+  preset: landscape
+narration:
+  voice: onyx
+script:
+  style: cold-open        # explainer (default) | cold-open — see `video-studio styles`
+  words_per_segment: 70   # ~40 words over the card, ~90 over the page scroll
+youtube:
+  upload: false
+  visibility: unlisted
+  tags: [github, trending, open source, developer tools]

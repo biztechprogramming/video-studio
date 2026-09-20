@@ -5,6 +5,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { EPISODES_DIR, QUERIES_DIR, episodePaths, loadEnv, resolveVideo, slugify, today } from './config.ts'
 import { fetchItems } from './sources/index.ts'
 import { writeEpisode } from './script/writer.ts'
+import { DEFAULT_STYLE, listStyles, resolveStyle } from './script/styles.ts'
 import { renderEpisode, formatTimestamp } from './render/index.ts'
 import { authenticate, uploadToYouTube } from './publish/youtube.ts'
 import type { Episode, QueryDef, SourceItem, SourceSpec } from './types.ts'
@@ -36,6 +37,7 @@ function addQueryOptions(cmd: Command): Command {
     .option('--reddit <subs>', 'Reddit subreddits, comma-separated (no r/ prefix)')
     .option('-n, --count <n>', 'How many items to cover', (v) => parseInt(v, 10))
     .option('--name <name>', 'Episode name, used for the slug and the default title')
+    .option('--style <style>', `Narration style: ${listStyles().map((s) => s.name).join(' | ')} (default: ${DEFAULT_STYLE})`)
     .option('--preset <preset>', 'landscape (16:9) or shorts (9:16)')
     .option('--voice <voice>', 'TTS voice: onyx, nova, alloy, echo, fable, shimmer, ...')
     .option('--music <file>', 'Background music track mixed under the episode')
@@ -57,6 +59,15 @@ program
     for (const f of files) {
       const def = parseYaml(await fs.readFile(join(QUERIES_DIR, f), 'utf8')) as QueryDef
       console.log(`${basename(f, '.yaml').padEnd(24)} ${describeSpec(def.source)}  (${def.count} items)`)
+    }
+  })
+
+program
+  .command('styles')
+  .description('List the narration styles usable with --style.')
+  .action(() => {
+    for (const style of listStyles()) {
+      console.log(`${style.name.padEnd(12)} ${style.summary}${style.name === DEFAULT_STYLE ? '  (default)' : ''}`)
     }
   })
 
@@ -101,6 +112,7 @@ program
   .command('script <slug>')
   .description('Stage 2: write the narration script to episodes/<slug>/script.yaml (edit it before rendering).')
   .option('--model <model>', 'OpenAI model for the script (default: $OPENAI_SCRIPT_MODEL or gpt-5.6-luna)')
+  .option('--style <style>', `Narration style: ${listStyles().map((s) => s.name).join(' | ')}`)
   .option('--tone <tone>', 'How it should sound')
   .option('--force', 'Overwrite an existing script.yaml', false)
   .action(async (slug: string, opts) => {
@@ -111,6 +123,9 @@ program
     }
     const query = { ...raw.query }
     if (opts.model) query.script = { ...query.script, model: opts.model }
+    // An explicit --style replaces the researched query's tone as well, since
+    // a tone written for one style fights the next one's rules.
+    if (opts.style) query.script = { ...query.script, style: resolveStyle(opts.style).name, tone: undefined }
     if (opts.tone) query.script = { ...query.script, tone: opts.tone }
 
     const episode = await writeEpisode({ query, items: raw.items, log })
@@ -296,6 +311,13 @@ async function resolveQuery(opts: Record<string, unknown>): Promise<QueryDef> {
   merged.count = merged.count || 5
   if (opts.name) merged.name = String(opts.name)
   if (!merged.name) merged.name = defaultName(merged.source)
+  if (opts.style) {
+    // Same reasoning as the `script` command: the flag is the newer intent, so
+    // it wins over a tone the saved query wrote for a different style.
+    merged.script = { ...merged.script, style: resolveStyle(String(opts.style)).name, tone: undefined }
+  }
+  // Fail here rather than three minutes into a research run.
+  resolveStyle(merged.script?.style)
   if (opts.preset) merged.video = { ...merged.video, preset: String(opts.preset) as 'landscape' | 'shorts' }
   if (opts.voice) merged.narration = { ...merged.narration, voice: String(opts.voice) }
   if (opts.music) merged.music = { path: resolve(String(opts.music)), volume: merged.music?.volume ?? 0.12 }

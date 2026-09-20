@@ -12,6 +12,7 @@ is the typecheck.
 | `src/cli.ts` | Commands: research, script, render, publish, make, episodes, queries, auth. |
 | `src/sources/` | One adapter per source; all return `SourceItem[]` via `fetchItems()`. |
 | `src/script/` | OpenAI narration + YouTube metadata writing. |
+| `src/script/styles.ts` | The editorial voices `--style` picks between. |
 | `src/render/` | Cards (Chromium screenshot), walkthroughs (Chromium recording), ffmpeg. |
 | `src/publish/` | YouTube Data API upload. |
 | `queries/` | Saved query definitions (`QueryDef`). |
@@ -27,6 +28,10 @@ is the typecheck.
 - **All clips share one codec/size/fps** (see the constants at the top of
   `src/render/encode.ts`) so the final concat can stream-copy. If you add a
   clip type, encode it with those same constants.
+- **Styles own prompt wording, not the JSON contract.** Every entry in
+  `src/script/styles.ts` returns the same keys, because `script.yaml`, the
+  renderer and the publisher are downstream of all of them. A new style is a
+  new object in `STYLES` — no other file should need to change.
 - **stdout is the result** (a slug, a path, a URL); progress goes to stderr.
 - **Missing config prompts, it doesn't crash** — use `requireEnv()` from
   `src/config.ts`, which writes the answer back to `.env`.

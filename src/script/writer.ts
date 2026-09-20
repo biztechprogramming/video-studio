@@ -1,18 +1,14 @@
 import { chatJson } from './openai.ts'
+import { BASE_VOICE_RULES, resolveStyle, type ScriptStyle } from './styles.ts'
 import type { CardContent, Episode, QueryDef, RepoSegment, Segment, SourceItem } from '../types.ts'
 import { resolveVideo, slugify, today } from '../config.ts'
 
 export const DEFAULT_SCRIPT_MODEL = process.env.OPENAI_SCRIPT_MODEL ?? 'gpt-5.6-luna'
 
-const VOICE_RULES = `
-Write for the ear, not the page. Hard rules:
-- Plain spoken English. No markdown, no bullets, no emoji, no stage directions.
-- Never read a URL, a slug, or a code fence aloud. Say "on GitHub" instead of the link.
-- Expand symbols: "48.2k stars" is spoken as "forty-eight thousand stars".
-- Say what it DOES and who it's FOR before you say anything about how popular it is.
-- Be specific and concrete. No "revolutionary", "game-changing", "in today's fast-paced world".
-- Contractions are good. Short sentences are better.
-`.trim()
+/** The voice rules every call sees: the medium's, then the style's. */
+function voiceRules(style: ScriptStyle): string {
+  return [BASE_VOICE_RULES, style.voiceRules].filter(Boolean).join('\n')
+}
 
 interface SegmentDraft {
   headline: string
@@ -51,17 +47,28 @@ export async function writeEpisode(opts: {
   const { query } = opts
   const log = opts.log ?? (() => {})
   const model = query.script?.model ?? DEFAULT_SCRIPT_MODEL
-  const tone = query.script?.tone ?? 'a knowledgeable developer friend showing you something cool — warm, dry, zero hype'
-  const words = query.script?.words_per_segment ?? 70
-  const countdown = opts.items.length > 1
+  const style = resolveStyle(query.script?.style)
+  const tone = query.script?.tone ?? style.defaultTone
+  const words = query.script?.words_per_segment ?? style.defaultWords
+  const budget = style.budget(words)
+  const countdown = style.countdown && opts.items.length > 1
   // Sources rank best-first, but a countdown has to *build*: play them in
   // reverse so the strongest item is the one the episode ends on, at #1.
   const items = countdown ? [...opts.items].reverse() : opts.items
 
-  log(`Writing ${items.length} segment scripts with ${model}...`)
+  log(`Writing ${items.length} segment scripts with ${model} in the ${style.name} style...`)
   const drafts = await Promise.all(
     items.map((item, i) =>
-      writeSegment({ item, rank: countdown ? items.length - i : undefined, model, tone, words })
+      writeSegment({
+        item,
+        rank: countdown ? items.length - i : undefined,
+        // Styles that hook forward need to know what they're hooking into.
+        next: style.needsNextItem ? items[i + 1] : undefined,
+        model,
+        tone,
+        style,
+        budget,
+      })
         .catch((err) => {
           // One failed segment shouldn't cost the whole episode: fall back to
           // the source's own description so the render still has something.
@@ -72,7 +79,7 @@ export async function writeEpisode(opts: {
   )
 
   log('Writing the intro, outro and YouTube metadata...')
-  const pkg = await writePackage({ query, items, drafts, model, tone })
+  const pkg = await writePackage({ query, items, drafts, model, tone, style })
 
   const video = resolveVideo(query.video)
   const date = today()
@@ -85,7 +92,8 @@ export async function writeEpisode(opts: {
       eyebrow: date,
       headline: pkg.intro_headline,
       subhead: pkg.intro_subhead,
-      bullets: items.map((i) => i.name),
+      // A style with no setup doesn't get to spoil its own lineup on the card.
+      bullets: style.introLineup ? items.map((i) => i.name) : undefined,
     },
     narration: pkg.intro_narration,
     hold: 4,
@@ -120,7 +128,7 @@ export async function writeEpisode(opts: {
 
   segments.push({
     kind: 'outro',
-    card: { eyebrow: 'THANKS FOR WATCHING', headline: pkg.outro_headline, subhead: pkg.outro_subhead },
+    card: { eyebrow: style.outroEyebrow, headline: pkg.outro_headline, subhead: pkg.outro_subhead },
     narration: pkg.outro_narration,
     hold: 5,
   })
@@ -148,18 +156,20 @@ export async function writeEpisode(opts: {
 async function writeSegment(opts: {
   item: SourceItem
   rank?: number
+  next?: SourceItem
   model: string
   tone: string
-  words: number
+  style: ScriptStyle
+  budget: { card: number; browse: number }
 }): Promise<SegmentDraft> {
-  const { item, rank, model, tone, words } = opts
+  const { item, rank, next, model, tone, style, budget } = opts
   const statLine = item.stats.map((s) => `${s.label}: ${s.value}`).join(', ')
   const draft = await chatJson<SegmentDraft>({
     model,
     temperature: 0.7,
     maxTokens: 900,
     system:
-      `You script short developer-focused YouTube videos. Tone: ${tone}.\n${VOICE_RULES}\n` +
+      `You script short developer-focused YouTube videos. Tone: ${tone}.\n${voiceRules(style)}\n` +
       `Return JSON with exactly these keys: headline, subhead, bullets (array of 3 short noun phrases, max 6 words each), ` +
       `narration_card, narration_browse.\n` +
       // The headline is *displayed*, so it keeps the real spelling; only the
@@ -167,13 +177,9 @@ async function writeSegment(opts: {
       `headline: the project's own name exactly as it is written, dropping any owner prefix ` +
       `(e.g. "llama.cpp", not "Llama Dot CPP" and not "ggml-org/llama.cpp"). Max 40 chars.\n` +
       `subhead: one line, max 90 chars, what it is.\n` +
-      // The card is a static frame: keep it tight and let the walkthrough,
-      // which has motion to carry it, take the longer half.
-      `narration_card: about ${Math.round(words * 0.6)} words, spoken over a stats card${rank ? `; this is number ${rank} in the countdown, so open by placing it` : ''}. ` +
-      `Say what the project does, the problem it solves, and who should care.\n` +
-      `narration_browse: about ${words} words, spoken while the viewer watches its page scroll past. ` +
-      `Go one level deeper than narration_card: how it works, a standout feature, a real caveat or limitation if the text reveals one. ` +
-      `Do not repeat sentences from narration_card.`,
+      // Everything above is the card, which every style renders identically;
+      // the narration below is where the style actually lives.
+      style.segmentRules({ item, rank, next, budget }),
     user:
       `Project: ${item.name}\nSource: ${item.source}\nDescription: ${item.description}\n` +
       `Stats: ${statLine}\n\n--- page/README text ---\n${item.content.slice(0, 9000)}`,
@@ -193,10 +199,16 @@ async function writePackage(opts: {
   drafts: SegmentDraft[]
   model: string
   tone: string
+  style: ScriptStyle
 }): Promise<PackageDraft> {
-  const { query, items, drafts, model, tone } = opts
+  const { query, items, drafts, model, tone, style } = opts
+  // Each line carries the segment's own opening sentence as well as its
+  // subhead, so the intro can point at the episode's sharpest *fact* rather
+  // than re-describing the lineup.
   const lineup = items
-    .map((item, i) => `${i + 1}. ${item.name} — ${drafts[i].subhead} (${item.stats.map((s) => `${s.label} ${s.value}`).join(', ')})`)
+    .map((item, i) =>
+      `${i + 1}. ${item.name} — ${drafts[i].subhead} (${item.stats.map((s) => `${s.label} ${s.value}`).join(', ')})\n` +
+      `   opens with: ${firstSentence(drafts[i].narration_card)}`)
     .join('\n')
 
   const pkg = await chatJson<PackageDraft>({
@@ -204,15 +216,13 @@ async function writePackage(opts: {
     temperature: 0.7,
     maxTokens: 1200,
     system:
-      `You script and package short developer-focused YouTube videos. Tone: ${tone}.\n${VOICE_RULES}\n` +
+      `You script and package short developer-focused YouTube videos. Tone: ${tone}.\n${voiceRules(style)}\n` +
       `Return JSON with exactly these keys: title, description, tags, intro_headline, intro_subhead, ` +
       `intro_narration, outro_headline, outro_subhead, outro_narration.\n` +
       `title: a YouTube title under 70 characters. Concrete and specific, no clickbait punctuation, no ALL CAPS.\n` +
       `description: 2 short paragraphs for the YouTube description box. Plain text. Do not invent links; chapter timestamps are added automatically.\n` +
       `tags: 8-12 lowercase YouTube tags.\n` +
-      `intro_narration: 35-50 words. Say what this episode covers and tease the most interesting item without naming every one.\n` +
-      `outro_narration: 20-30 words. A specific closing thought, then a light ask to subscribe. Do not promise anything that isn't in the lineup.\n` +
-      `intro_headline / outro_headline: max 40 characters. subheads: max 80 characters.`,
+      style.packageRules({ names: items.map((i) => i.name) }),
     user: `Episode query: ${query.name}\nDate: ${today()}\n\nLineup (in playback order):\n${lineup}`,
   })
   return {
@@ -222,10 +232,17 @@ async function writePackage(opts: {
     intro_headline: String(pkg.intro_headline ?? query.name),
     intro_subhead: String(pkg.intro_subhead ?? ''),
     intro_narration: String(pkg.intro_narration ?? ''),
-    outro_headline: String(pkg.outro_headline ?? 'Thanks for watching'),
+    outro_headline: String(pkg.outro_headline || style.outroHeadlineFallback),
     outro_subhead: String(pkg.outro_subhead ?? ''),
     outro_narration: String(pkg.outro_narration ?? ''),
   }
+}
+
+/** First sentence of a block of narration, for the packaging call's lineup. */
+function firstSentence(text: string): string {
+  const trimmed = text.trim()
+  const end = trimmed.search(/[.!?](\s|$)/)
+  return (end === -1 ? trimmed : trimmed.slice(0, end + 1)).slice(0, 200)
 }
 
 /** Where the walkthrough should start scrolling, per source. */
