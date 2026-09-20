@@ -1,7 +1,11 @@
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { probeDuration } from '../narration.ts'
+import { probeDuration, runFfmpeg } from '../ffmpeg.ts'
+
+// Re-exported because footage.ts and the clip builders here are one unit as far
+// as callers are concerned; the implementation lives in ../ffmpeg.ts.
+export { runFfmpeg }
 
 // Every clip in an episode is encoded to these exact parameters so the final
 // concat can stream-copy instead of re-encoding (see concatClips).
@@ -415,21 +419,4 @@ function probeStream(path: string): Promise<StreamParams | null> {
 /** Clamp `v` into [lo, hi], then hard-cap it at `ceiling`. */
 function clamp(v: number, lo: number, hi: number, ceiling: number): number {
   return Math.min(Math.max(Math.min(Math.max(v, lo), hi), 0), ceiling)
-}
-
-export function runFfmpeg(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
-    let stderr = ''
-    p.stderr.on('data', (d) => (stderr += d))
-    p.on('error', (e) => {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-        reject(new Error('ffmpeg not found in PATH. Install it: apt install ffmpeg'))
-      } else reject(e)
-    })
-    p.on('close', (code) => {
-      if (code === 0) resolve()
-      else reject(new Error(`ffmpeg exited ${code}:\n${stderr.split('\n').slice(-25).join('\n')}`))
-    })
-  })
 }

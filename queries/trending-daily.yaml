@@ -13,10 +13,10 @@ footage:
   enabled: true          # the expensive part of an episode — see README "Cost per episode"
   beat_seconds: 8
 narration:
-  voice: onyx
+  voice: ash             # the host's voice; `video-studio voices` lists the rest
 script:
-  tone: a knowledgeable developer friend showing you something cool — warm, dry, zero hype
-  words_per_segment: 70
+  tone: fast, specific, confident, zero ceremony
+  words_per_segment: 85     # the walkthrough half; the stats card gets ~40
 youtube:
   upload: false          # flip to true, or pass --publish, when you trust a run unattended
   visibility: unlisted

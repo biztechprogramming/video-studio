@@ -12,6 +12,8 @@ is the typecheck.
 | `src/cli.ts` | Commands: research, script, render, publish, make, episodes, queries, auth. |
 | `src/sources/` | One adapter per source; all return `SourceItem[]` via `fetchItems()`. |
 | `src/script/` | OpenAI narration + YouTube metadata writing. |
+| `src/voices/` | The voice catalog, the speech provider, and casting. |
+| `src/ffmpeg.ts` | `runFfmpeg` / `probeDuration`; the leaf both audio and video build on. |
 | `src/render/` | Cards (Chromium screenshot), b-roll (video model), walkthroughs (Chromium recording), ffmpeg. |
 | `src/publish/` | YouTube Data API upload. |
 | `queries/` | Saved query definitions (`QueryDef`). |
@@ -35,6 +37,32 @@ is the typecheck.
   model access, a moderation refusal, a dead network: log it and keep the
   episode. `FootageUnavailableError` means "stop asking for the rest of the
   run", everything else means "this one shot didn't work".
+- **The project speaks; the host asks.** A segment is an interview, not
+  narration split between two voices. The project opens — first person, flat,
+  on the fact that shouldn't be true — and the host is short, skeptical, and
+  never introduces anything. Somewhere in every walkthrough the host asks what
+  breaks and the project answers honestly; that answer is the only opinion the
+  format has, and it's the reason it exists. Never let the host explain the
+  project: the moment the host is the one talking, this is a slideshow again.
+- **A project's voice belongs to the project, not to the episode.** Casting
+  hashes `owner/name`, so a repo sounds the same the next time it trends.
+  Anything that makes a voice depend on the lineup — position, neighbours,
+  order — breaks that and has already been tried once (see `voices/casting.ts`).
+- **Delivery direction is data, not prompt decoration.** `cast[x].direction` is
+  handed to the speech model, and only models matching `canAct()` use it. If
+  you change the default TTS model, check that first: on a model that can't
+  act, five cast voices are five timbres reading the same script.
+- **Narration is cached per line.** The key is (model, voice, direction, text),
+  and the assembled exchange is keyed on its lines plus the gap policy. Editing
+  one answer in `script.yaml` must re-synthesize one answer. Bump `GAP_POLICY`
+  in `src/narration.ts` when the turn-taking timing changes, or old assemblies
+  come back.
+- **The narration is a hook, not a list.** The intro is one checkable claim
+  about one named project plus a concrete promise, 30 words; every segment opens
+  on a different kind of fact (`OPENING_MOVES` in `src/script/writer.ts`) and
+  ends handing off to the next; the outro closes that loop and names where the
+  next shortlist comes from. Never let a segment say its own rank — it's on the
+  card, and it costs the sentence that has to earn the next thirty seconds.
 - **All clips share one codec/size/fps** (see the constants at the top of
   `src/render/encode.ts`) so the final concat can stream-copy. If you add a
   clip type, encode it with those same constants.

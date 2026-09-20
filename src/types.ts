@@ -49,6 +49,7 @@ export interface QueryDef {
     cards?: CardMode
   }
   narration?: { voice?: string; model?: string; enabled?: boolean }
+  /** `words_per_segment` is the walkthrough half; the stats card gets about half of it. */
   script?: { model?: string; tone?: string; words_per_segment?: number }
   /** Generative b-roll that plays under the card overlays. */
   footage?: { enabled?: boolean; model?: string; size?: string; beat_seconds?: number }
@@ -77,6 +78,35 @@ export interface FetchOpts {
   log: (msg: string) => void
 }
 
+/**
+ * One turn in an exchange. `speaker` is a key into `Episode.cast`; "host" is
+ * always the interviewer.
+ */
+export interface Line {
+  speaker: string
+  text: string
+}
+
+/**
+ * What gets spoken over a clip: an exchange, or a plain string for a single
+ * voice. Scripts written before the cast existed are plain strings, and still
+ * render — they're read by the host.
+ */
+export type Narration = string | Line[]
+
+/** Who a speaker is and how they sound. */
+export interface CastMember {
+  /** `provider:voice`, or a bare voice name for the default provider. */
+  voice: string
+  /**
+   * Delivery direction for the speech model: the character, the pace, the
+   * attitude. Models that can't act ignore it (see `canAct` in voices/catalog).
+   */
+  direction?: string
+  /** What this speaker is, for the reader of script.yaml: "the project itself". */
+  note?: string
+}
+
 /** The scripted episode — this is what `script.yaml` serializes to. */
 export interface Episode {
   slug: string
@@ -91,7 +121,14 @@ export interface Episode {
    */
   cards?: CardMode
   footage?: FootageSettings
+  /**
+   * `voice` is the host's — every other speaker is named in `cast`. Edit either
+   * one in script.yaml and re-render; the TTS cache is keyed on voice and
+   * direction, so only the lines that actually changed are paid for again.
+   */
   narration: { enabled: boolean; voice?: string; model?: string }
+  /** Speaker id → voice and direction. Always contains "host". */
+  cast?: Record<string, CastMember>
   youtube: { upload: boolean; visibility: 'public' | 'unlisted' | 'private' }
   music?: { path: string; volume: number }
   segments: Segment[]
@@ -128,7 +165,7 @@ export type Segment = CardSegment | RepoSegment
 export interface CardSegment {
   kind: 'intro' | 'outro' | 'card'
   card: CardContent
-  narration?: string
+  narration?: Narration
   /** Minimum seconds on screen, independent of narration length. */
   hold?: number
   /** Generated shots this card is composited over. */
@@ -138,17 +175,23 @@ export interface CardSegment {
 /** A subject: its stats card, then a live walkthrough of its page. */
 export interface RepoSegment {
   kind: 'repo'
-  /** Position in the countdown, for "number three" style narration. */
+  /** Position in the countdown. It shows on the card; the narration never says it. */
   rank?: number
   url: string
   card: CardContent
-  /** Narration that plays over the stats card. */
-  narration?: string
+  /**
+   * The chapter title. A capability — "Track planes, ships and satellites from
+   * one interface" — not the project's name, which viewers can't search for
+   * and don't yet care about.
+   */
+  label?: string
+  /** What's said over the stats card. */
+  narration?: Narration
   /** Generated shots the stats card is composited over. */
   broll?: FootageBeat[]
   /** The live-browser portion. Omit to show only the card. */
   browse?: {
-    narration?: string
+    narration?: Narration
     /** Seconds of smooth scrolling through the page. */
     scrollSeconds?: number
     /** CSS selector to scroll to first (defaults to the README body). */

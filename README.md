@@ -24,8 +24,9 @@ query ─► research ─► script ─► render ─► publish
          │           │             over it (Chromium screenshot, alpha)
          │           │             + walkthroughs (Chromium recording, smooth
          │           │             scroll, animated cursor) → ffmpeg concat
-         │           └─ OpenAI writes per-segment narration, intro/outro and
-         │              the YouTube metadata → script.yaml (editable)
+         │           └─ OpenAI writes each segment as an interview between the
+         │              host and the project, casts a voice per project, and
+         │              writes the YouTube metadata → script.yaml (editable)
          └─ GitHub / HN / Reddit + README and article text → research.json
 ```
 
@@ -84,10 +85,10 @@ source:
 video:
   preset: landscape          # landscape (1920x1080) | shorts (1080x1920)
 narration:
-  voice: onyx                # any OpenAI TTS voice
+  voice: ash                 # the HOST's voice; projects are cast against it
 script:
-  tone: warm, dry, zero hype
-  words_per_segment: 70
+  tone: fast, specific, confident, zero ceremony
+  words_per_segment: 85      # walkthrough half; the stats card gets ~40
 music:
   path: /path/to/bed.mp3     # optional; ducked under the narration
   volume: 0.12
@@ -107,10 +108,22 @@ re-render only what changed:
 ./bin/video-studio render <slug> --only 2,3     # segment indices, 0-based
 ```
 
-Narration audio is cached by (text + voice + model), so re-rendering a segment
-whose words you didn't touch costs nothing and hits no API.
+Narration audio is cached per line by (text + voice + direction + model), so
+re-rendering a segment whose words you didn't touch costs nothing and hits no
+API — and changing one answer in an exchange re-synthesizes that answer alone.
 
 Useful edits:
+
+- `cast:` at the top is who speaks. `host` asks the questions; every other
+  entry is a project speaking for itself. `voice:` is any name from
+  `video-studio voices`, and `direction:` is stage direction handed to the
+  speech model — "terse, unhurried, has heard this question before". Change
+  either and only that speaker's lines are generated again.
+- A segment's `narration:` is a list of `{speaker, text}` turns. Rewrite a
+  line, cut a turn, or swap who says what. A plain string still works and is
+  read by the host.
+- `label:` on a repo segment is its chapter title — the capability, not the
+  project's name.
 
 - Reorder or delete a `segments:` entry to drop a subject.
 - `broll:` is the list of shot prompts for that segment. Rewrite one and only
@@ -212,8 +225,11 @@ never dies for want of b-roll.
 ## Cost per episode
 
 Roughly, for a 5-item landscape episode: a handful of cents of `gpt-5.6-luna` for
-the script, and `tts-1-hd` at $30 per million characters — about 4,000
-characters of narration, so ~$0.12.
+the script, and cents again for the speech — about 4,000 characters of
+narration, whether that's one narrator or a cast of six. Casting is free: the
+same words are synthesized either way, just in more voices. (`gpt-4o-mini-tts`
+is priced per token rather than per character like `tts-1-hd` was, so check the
+current rate if it matters.)
 
 Footage is the expensive part. Each card buys at most three shots (capped at
 ~20 seconds of generated video), the intro is free, so a 5-item episode

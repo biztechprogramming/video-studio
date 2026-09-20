@@ -12,9 +12,10 @@ import {
   renderStillClip,
 } from './encode.ts'
 import { DEFAULT_FOOTAGE_MODEL, FootageUnavailableError, buildFootage, defaultFootageSize } from './footage.ts'
-import { OpenAITTS, generateClips, probeDuration } from '../narration.ts'
+import { HOST, OpenAITTS, generateNarration, probeDuration, toLines, type NarrationUnit } from '../narration.ts'
+import { DEFAULT_HOST_VOICE } from '../voices/catalog.ts'
 import { episodePaths } from '../config.ts'
-import type { Episode, RenderedClip, Segment } from '../types.ts'
+import type { CastMember, Episode, RenderedClip, Segment } from '../types.ts'
 
 export interface RenderResult {
   videoPath: string
@@ -71,16 +72,13 @@ export async function renderEpisode(opts: {
   // 1. Narration for every segment, in one batch so the TTS cache is warm and
   //    the durations are known before anything is encoded.
   const units = collectNarration(episode.segments)
-  const audio = new Map<string, { path: string; durationSec: number }>()
+  let audio = new Map<string, { path: string; durationSec: number }>()
   if (episode.narration.enabled && units.length > 0) {
-    log(`Generating narration for ${units.length} lines...`)
-    const tts = new OpenAITTS({ voice: episode.narration.voice, model: episode.narration.model })
-    const clips = await generateClips(
-      units.map((u, i) => ({ index: i, text: u.text })),
-      paths.ttsCache,
-      tts,
-    )
-    for (const c of clips) audio.set(units[c.index].key, { path: c.path, durationSec: c.durationSec })
+    const cast = resolveCast(episode)
+    const speakers = new Set(units.flatMap((u) => u.lines.map((l) => l.speaker)))
+    log(`Generating narration: ${units.flatMap((u) => u.lines).length} lines, ${speakers.size} voices...`)
+    const tts = new OpenAITTS({ voice: cast[HOST].voice, model: episode.narration.model })
+    audio = await generateNarration({ units, cacheDir: paths.ttsCache, tts, cast, log })
   }
 
   // 2. One card renderer for the whole episode — relaunching Chromium per
@@ -369,21 +367,55 @@ export function formatTimestamp(sec: number): string {
   return h > 0 ? `${h}:${pad2(m)}:${pad2(rest)}` : `${m}:${pad2(rest)}`
 }
 
-function collectNarration(segments: Segment[]): { key: string; text: string }[] {
-  const units: { key: string; text: string }[] = []
+function collectNarration(segments: Segment[]): NarrationUnit[] {
+  const units: NarrationUnit[] = []
   segments.forEach((seg, i) => {
-    if (seg.narration?.trim()) units.push({ key: `${i}:card`, text: seg.narration.trim() })
-    if (seg.kind === 'repo' && seg.browse?.narration?.trim()) {
-      units.push({ key: `${i}:browse`, text: seg.browse.narration.trim() })
+    const card = toLines(seg.narration)
+    if (card.length > 0) units.push({ key: `${i}:card`, lines: card })
+    if (seg.kind === 'repo') {
+      const browse = toLines(seg.browse?.narration)
+      if (browse.length > 0) units.push({ key: `${i}:browse`, lines: browse })
     }
   })
   return units
 }
 
+/**
+ * The speaking parts, with the host's chair filled however the episode asked.
+ *
+ * `cast.host` wins over `narration.voice`, because the cast is the thing a
+ * human edits: both are written by the same call at script time, so the only
+ * way they can disagree is that someone changed one of them on purpose, and
+ * `cast` is the one the file invites you to change. `narration.voice` still
+ * covers scripts written before the cast existed.
+ *
+ * A speaker with no entry — a hand-written line, a renamed key — falls back to
+ * the host rather than failing the render.
+ */
+function resolveCast(episode: Episode): Record<string, CastMember> {
+  const cast: Record<string, CastMember> = { ...(episode.cast ?? {}) }
+  const host = cast[HOST]
+  cast[HOST] = {
+    ...host,
+    voice: host?.voice ?? episode.narration.voice ?? DEFAULT_HOST_VOICE,
+  }
+  return cast
+}
+
+/**
+ * What this segment is called in the logs and in the YouTube chapter list.
+ *
+ * A repo segment prefers its `label` — the capability it gives you — over its
+ * headline: "Track planes, ships and satellites from one interface" is a thing
+ * someone searches for, and "#3 skyfeed" is not.
+ */
 function segmentLabel(seg: Segment, i: number): string {
   if (seg.kind === 'intro') return 'Intro'
   if (seg.kind === 'outro') return 'Outro'
-  if (seg.kind === 'repo') return seg.rank ? `#${seg.rank} ${seg.card.headline}` : seg.card.headline
+  if (seg.kind === 'repo') {
+    const name = seg.label?.trim() || seg.card.headline
+    return seg.rank ? `#${seg.rank} ${name}` : name
+  }
   return seg.card.headline || `Segment ${i + 1}`
 }
 

@@ -7,6 +7,8 @@ import { fetchItems } from './sources/index.ts'
 import { writeEpisode } from './script/writer.ts'
 import { renderEpisode, formatTimestamp } from './render/index.ts'
 import { authenticate, uploadToYouTube } from './publish/youtube.ts'
+import { DEFAULT_HOST_VOICE, DEFAULT_TTS_MODEL, VOICES, canAct } from './voices/catalog.ts'
+import { assertVoice, parseVoice } from './voices/casting.ts'
 import type { CardMode, Episode, QueryDef, SourceItem, SourceSpec } from './types.ts'
 
 loadEnv()
@@ -64,6 +66,87 @@ program
     }
   })
 
+/**
+ * The line the audition says by default.
+ *
+ * Deliberately full of the things that expose a voice: a version string, a
+ * decision stated flatly, an em-dash it has to phrase around, and a proper noun
+ * it can mispronounce. A voice that survives this survives an episode.
+ */
+const AUDITION_LINE =
+  'Version zero point four dropped Kubernetes support. On purpose. ' +
+  'Forty thousand lines of C, gone — and the maintainer is one person in Prague.'
+
+program
+  .command('voices')
+  .description('List the voices a cast is drawn from, or audition them into one comparison MP3.')
+  .option('--audition', 'Synthesize the line in every voice and assemble a reel', false)
+  .option('--text <line>', 'What they should say')
+  .option('--direction <direction>', 'Delivery direction to test, e.g. "weary, flat on the numbers"')
+  .option('--only <voices>', 'Audition a subset, comma-separated')
+  .option('--model <model>', `TTS model (default: $OPENAI_TTS_MODEL or ${DEFAULT_TTS_MODEL})`)
+  .action(async (opts) => {
+    const model = String(opts.model ?? process.env.OPENAI_TTS_MODEL ?? DEFAULT_TTS_MODEL)
+    const chosen = opts.only
+      ? String(opts.only)
+          .split(',')
+          .map((v: string) => parseVoice(assertVoice(v.trim())).voice)
+      : VOICES.map((v) => v.id)
+
+    if (!opts.audition) {
+      log(`Model ${model}${canAct(model) ? ' (takes delivery direction)' : " (ignores delivery direction — a cast won't act)"}`)
+      for (const v of VOICES) {
+        const mark = v.id === DEFAULT_HOST_VOICE ? ' *' : '  '
+        console.log(`${mark}${v.id.padEnd(10)} ${v.register.padEnd(5)} ${v.note}`)
+      }
+      log('\n* the default host. Every other voice is cast to a project automatically.')
+      log('Hear them: video-studio voices --audition')
+      return
+    }
+
+    const { OpenAITTS, generateNarration, assembleLines } = await import('./narration.ts')
+    const text = String(opts.text ?? AUDITION_LINE)
+    const direction = opts.direction ? String(opts.direction) : undefined
+    const outDir = join(EPISODES_DIR, '_voicelab', slugify(model))
+    await fs.mkdir(outDir, { recursive: true })
+
+    // Each voice slates itself before reading, so the reel is usable without a
+    // tracklist — which is the whole point of listening to eleven of them.
+    const tts = new OpenAITTS({ model })
+    const audio = await generateNarration({
+      units: chosen.map((voice: string) => ({
+        key: voice,
+        lines: [
+          { speaker: voice, text: `${voice}.` },
+          { speaker: voice, text },
+        ],
+      })),
+      cacheDir: join(EPISODES_DIR, '_voicelab', '.tts-cache'),
+      tts,
+      cast: Object.fromEntries(chosen.map((voice: string) => [voice, { voice, direction }])),
+      log,
+    })
+    if (audio.size === 0) throw new Error('Nothing synthesized — see the warnings above.')
+
+    const takes: { path: string; line: { speaker: string; text: string } }[] = []
+    for (const voice of chosen) {
+      const take = audio.get(voice)
+      if (!take) continue
+      const named = join(outDir, `${voice}.mp3`)
+      await fs.copyFile(take.path, named)
+      takes.push({ path: named, line: { speaker: voice, text } })
+      log(`  ${voice.padEnd(10)} ${take.durationSec.toFixed(1)}s  ${named}`)
+    }
+
+    const reel = join(outDir, 'reel.mp3')
+    // A fixed pause between takes: these are separate auditions, not a
+    // conversation, and the turn-taking gaps would run them together.
+    await assembleLines(takes, reel, 0.7)
+    log(`\n${takes.length} voices → ${reel}`)
+    log(`Pick one: video-studio make -q <query> --voice <name>`)
+    console.log(reel)
+  })
+
 program
   .command('episodes')
   .description('List episodes and how far each one got.')
@@ -106,6 +189,7 @@ program
   .description('Stage 2: write the narration script to episodes/<slug>/script.yaml (edit it before rendering).')
   .option('--model <model>', 'OpenAI model for the script (default: $OPENAI_SCRIPT_MODEL or gpt-5.6-luna)')
   .option('--tone <tone>', 'How it should sound')
+  .option('--voice <voice>', "The host's voice; every project is cast against it")
   .option('--force', 'Overwrite an existing script.yaml', false)
   .action(async (slug: string, opts) => {
     const paths = episodePaths(slug)
@@ -116,6 +200,7 @@ program
     const query = { ...raw.query }
     if (opts.model) query.script = { ...query.script, model: opts.model }
     if (opts.tone) query.script = { ...query.script, tone: opts.tone }
+    if (opts.voice) query.narration = { ...query.narration, voice: assertVoice(String(opts.voice)) }
 
     const episode = await writeEpisode({ query, items: raw.items, log })
     episode.slug = slug
@@ -302,7 +387,9 @@ async function resolveQuery(opts: Record<string, unknown>): Promise<QueryDef> {
   if (opts.name) merged.name = String(opts.name)
   if (!merged.name) merged.name = defaultName(merged.source)
   if (opts.preset) merged.video = { ...merged.video, preset: String(opts.preset) as 'landscape' | 'shorts' }
-  if (opts.voice) merged.narration = { ...merged.narration, voice: String(opts.voice) }
+  // Checked here, three stages before anything is synthesized: a typo in
+  // --voice should cost a line of output, not a render.
+  if (opts.voice) merged.narration = { ...merged.narration, voice: assertVoice(String(opts.voice)) }
   if (opts.music) merged.music = { path: resolve(String(opts.music)), volume: merged.music?.volume ?? 0.12 }
   if (opts.cards) merged.video = { ...merged.video, cards: parseCardMode(String(opts.cards)) }
   if (opts.footageModel) merged.footage = { ...merged.footage, model: String(opts.footageModel) }
@@ -376,7 +463,9 @@ function episodeSlug(query: QueryDef): string {
 
 function scriptHeader(): string {
   return (
-    '# Edit anything here before rendering — narration, headlines, bullets, order.\n' +
+    '# Edit anything here before rendering — dialogue, headlines, bullets, order.\n' +
+    '# `cast` is who speaks: change a voice or its direction and only the lines in\n' +
+    '# that voice are synthesized again.  video-studio voices  lists the options.\n' +
     '# Re-render one changed segment with:  video-studio render <slug> --only <index>\n'
   )
 }
